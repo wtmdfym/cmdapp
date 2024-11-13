@@ -1,0 +1,18 @@
+{
+    "save_path": "C:/pixiv/",
+    "cookies": {},
+    "http_proxies": "",
+    "https_proxies": "",
+    "enable_console_output": true,
+    "use_thumbnail": false,
+    "semaphore": 2,
+    "download_thread_number": 3,
+    "download_type": {
+        "getillusts": true,
+        "getmanga": true,
+        "getmangaSeries": false,
+        "getnovelSeries": false,
+        "getnovels": false
+    },
+    "last_record_time": "0"
+}
