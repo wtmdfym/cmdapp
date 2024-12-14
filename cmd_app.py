@@ -5,23 +5,31 @@ import logging
 import sys
 import signal
 from motor import motor_asyncio
+
 # from InfoFetcher import *
-from infoRecorders import FollowingsRecorder,WorkInfoRecorder
-from Asyncdownloader import *
+from infoRecorders import FollowingsRecorder, WorkInfoRecorder
+from downloader import Analyzer
 from Tool import *
 
 
-class AsyncThreadingManager():
-    '''
+class AsyncThreadingManager:
+    """
     __proxies: Proxy to use requests to send HTTP requests (optional)
-    '''
+    """
 
-    # break_signal = 
-    __proxies = 'http://localhost:1111'
-    version = '54b602d334dbd7fa098ee5301611eda1776f6f39'
+    # break_signal =
+    __proxies = "http://localhost:1111"
+    version = "54b602d334dbd7fa098ee5301611eda1776f6f39"
 
-    def __init__(self, config_dict: dict,  config_save_path, loop: asyncio.AbstractEventLoop, asyncdb,
-                 asyncbackupcollection, logger: logging.Logger) -> None:
+    def __init__(
+        self,
+        config_dict: dict,
+        config_save_path,
+        loop: asyncio.AbstractEventLoop,
+        asyncdb,
+        asyncbackupcollection,
+        logger: logging.Logger,
+    ) -> None:
         super().__init__()
         logger.info("初始化爬虫......")
         self.ifstop = False
@@ -46,8 +54,8 @@ class AsyncThreadingManager():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)"""
         newtime = time.strftime("%Y%m%d%H%M%S")
-        
-        if compare_datetime(
+
+        """if compare_datetime(
             self.config_dict["last_record_time"], newtime
         ):
             # 获取关注的作者
@@ -93,25 +101,26 @@ class AsyncThreadingManager():
             del self.info_getter
         else:
             self.logger.info("最近已获取,跳过")
-        exit(0)
+        # exit(0)
+        """
         # 下载作品
         if self.ifstop:
             self.loop.stop()
             exit(0)
             return
-        self.downloader = DownloaderHttpx(
+        self.downloader = Analyzer(
             self.config_dict["save_path"],
             self.clientpool,
             self.config_dict["download_type"],
             self.semaphore,
             self.asyncbackup_collection,
+            self.asyncdb["All Followings"],
             self.logger,
         )
-        loop.run_until_complete(asyncio.ensure_future(
-            self.downloader.start_following_download()))
+        loop.run_until_complete(asyncio.ensure_future(self.downloader.start_download()))
         # await self.downloader.start_following_download()
         del self.downloader
-        
+
         # self.break_signal.emit()
         self.loop.stop()
         exit(0)
@@ -145,8 +154,9 @@ if __name__ == "__main__":
         format="%(asctime)s => [%(levelname)s] - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         stream=sys.stdout,
-        level=logging.INFO)
-    logger = logging.getLogger('basic_logger')
+        level=logging.INFO,
+    )
+    logger = logging.getLogger("basic_logger")
     # logger.propagate = False
     # console_handler = logging.StreamHandler(sys.stdout)
     # console_handler.setLevel(logging.DEBUG)
@@ -160,10 +170,12 @@ if __name__ == "__main__":
     # 初始化设置信息
     logger.info("读取配置文件......")
     app_path = os.path.dirname(__file__)
-    default_config_save_path = os.path.join(os.path.abspath(app_path), "default_config.json")
+    default_config_save_path = os.path.join(
+        os.path.abspath(app_path), "default_config.json"
+    )
     config_save_path = os.path.join(os.path.abspath(app_path), "config.json")
     config_dict = ConfigSetter.get_config(config_save_path, default_config_save_path)
-    
+
     # 初始化协程事件循环
     logger.info("初始化协程事件循环......")
     loop = asyncio.new_event_loop()
@@ -171,25 +183,26 @@ if __name__ == "__main__":
 
     # 初始化数据库
     logger.info("初始化数据库......")
-    asyncclient = motor_asyncio.AsyncIOMotorClient('localhost', 27017, io_loop=loop)
+    asyncclient = motor_asyncio.AsyncIOMotorClient("localhost", 27017, io_loop=loop)
     asyncdb = asyncclient["pixiv"]
     asyncbackupcollection = asyncclient["backup"]["backup of pixiv infos"]
 
     # 实例化爬虫管理类
-    manager = AsyncThreadingManager(config_dict, config_save_path, loop, asyncdb,
-                                         asyncbackupcollection, logger)
-    
+    manager = AsyncThreadingManager(
+        config_dict, config_save_path, loop, asyncdb, asyncbackupcollection, logger
+    )
+
     # 终止信号处理
     signal.signal(signal.SIGINT, terminate_signal_handler)
     signal.signal(signal.SIGTERM, terminate_signal_handler)
-    
+
     # 启动爬虫
     manager.run()
     # future = asyncio.ensure_future(manager.run())
     # cl.add_client("pixiv_webcrawler_1@proton.me", "pixiv_webcrawler")
     # cl.add_client("pweb2@tutamail.com", "pixiv_webcrawler")
     # cl.add_client("pwebc3@outlook.com", "pixiv_webcrawler")
-    
+
     # 等待程序结束/终止信号
     while True:
         time.sleep(1)
