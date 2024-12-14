@@ -5,7 +5,8 @@ import logging
 import sys
 import signal
 from motor import motor_asyncio
-from InfoFetcher import *
+# from InfoFetcher import *
+from infoRecorders import FollowingsRecorder,WorkInfoRecorder
 from Asyncdownloader import *
 from Tool import *
 
@@ -59,6 +60,7 @@ class AsyncThreadingManager():
             self.followings_recorder.set_version(self.version)
             # success = self.loop.run_until_complete(asyncio.ensure_future(
             #     self.followings_recorder.bookmarked_work_fetcher()))
+            '''
             success = self.loop.run_until_complete(asyncio.ensure_future(
                 self.followings_recorder.following_work_fetcher()))
             # success = await self.followings_recorder.following_work_fetcher()
@@ -66,20 +68,19 @@ class AsyncThreadingManager():
                 # self.break_signal.emit()
                 self.loop.stop()
                 exit(0) 
-                return
+                return'''
             del self.followings_recorder
             # 获取关注的作者的信息
             if self.ifstop:
                 self.loop.stop()
                 return
-            self.info_getter = InfoFetcherHttpx(
+            self.info_getter = WorkInfoRecorder(
                 self.clientpool,
                 self.config_dict["download_type"],
                 self.asyncdb,
                 self.asyncbackup_collection,
                 self.logger,
                 self.semaphore
-                # self.progress_signal
             )
             self.info_getter.set_version(self.version)
             success = self.loop.run_until_complete(asyncio.ensure_future(
@@ -92,7 +93,7 @@ class AsyncThreadingManager():
             del self.info_getter
         else:
             self.logger.info("最近已获取,跳过")
-        # exit(0)
+        exit(0)
         # 下载作品
         if self.ifstop:
             self.loop.stop()

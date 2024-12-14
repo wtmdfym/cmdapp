@@ -576,10 +576,6 @@ def check_image(path: str) -> bool:
     else:
         return False
 
-class ErrorHander(enumerate):
-    def __init__(self) -> None:
-        super().__init__()
-
 # print(check_image('C:/Users/Administrator/Desktop/120205761_p0.jpg'))
 # work_type = "manga"
 # print((work_type == "illust") or (work_type == "manga"))

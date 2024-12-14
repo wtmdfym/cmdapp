@@ -21,10 +21,18 @@
 ### 支持的下载类型
 - [x] illust
 - [x] manga
-- [x] Series
-- [ ] novel
+- [ ] Series
+- [x] novel
 - [x] ugoira
+- [ ] 小说插入的插画？
 ### GUI适配
 - [x] pyQt
 - [ ] dotnet (已放弃)
 - [x] flutter (在flutter项目内)
+
+## updates:
+- 1.0.1
+  - 优化代码，修复bug
+  - 实现小说的获取
+  - 新增记录作者最近作品的功能
+  - 新增作者profileImageUrl的获取（未实现下载）
