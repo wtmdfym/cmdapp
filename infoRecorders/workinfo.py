@@ -6,7 +6,7 @@ import time
 
 from parsel import Selector
 from Tool import ClientPool
-from motor import motor_asyncio
+from mongoDB_hander import MongoDBHander
 
 
 class WorkInfoRecorder:
@@ -42,15 +42,12 @@ class WorkInfoRecorder:
         self,
         clientpool: ClientPool,
         download_type: dict,
-        asyncdb: motor_asyncio.AsyncIOMotorDatabase,
-        asyncbackupcollection: motor_asyncio.AsyncIOMotorCollection,
+        mongoDb_hander: MongoDBHander,
         logger: logging.Logger,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        self.db = asyncdb
         self.download_type = download_type
-        self.backup_collection = asyncbackupcollection
-        self.followings_collection = self.db["All Followings"]
+        self.mongoDb_hander = mongoDb_hander
         self.logger = logger
         self.clientpool = clientpool
         self.semaphore = semaphore
@@ -58,8 +55,7 @@ class WorkInfoRecorder:
             clientpool=clientpool,
             logger=logger,
             semaphore=semaphore,
-            tags_collection=self.db["All Tags"],
-            followings_collection=self.followings_collection,
+            mongoDb_hander=mongoDb_hander,
         )
         self.__event.set()
         self.error_counter = 0
@@ -68,7 +64,7 @@ class WorkInfoRecorder:
     async def start_get_info(self) -> bool | None:
         finish = await self.record_user_work_infos()
         if finish:
-            success = await self.mongoDB_auto_backup()
+            success = await self.mongoDb_hander.mongoDB_auto_backup()
             if success:
                 return True
             else:
@@ -76,7 +72,9 @@ class WorkInfoRecorder:
                 # raise Exception("database backup error")
 
     async def record_user_work_infos(self) -> bool:
-        _painters = self.followings_collection.find({"userId": {"$exists": True}})
+        _painters = self.mongoDb_hander.find_exist(
+            key="userId", collection="followings"
+        )
         painters = []
         async for painter in _painters:
             if painter.get("not_following_now"):
@@ -86,32 +84,26 @@ class WorkInfoRecorder:
         for painter in painters:
             uid = painter.get("userId")
             name = painter.get("userName")
-            name, ids = await self.get_user_work_id(user=(uid, name))
-            collection = self.db[name]
-            if ids:
+            wrok_ids = await self.get_user_work_id(user=(uid, name))
+            if wrok_ids:
                 # 将作品详情信息保存在mongodb中
                 async with self.semaphore:
-                    exists = collection.find(
-                        {"id": {"$exists": True}}, {"_id": 0, "id": 1}
-                    )
-                    exists_id = [id.get("id") async for id in exists]
-                    for key in list(ids.keys()):
+                    for key in list(wrok_ids.keys()):
                         if not self.__event.is_set():
                             return
-                        _ids = ids.get(key)
+                        ids = wrok_ids.get(key)
                         task_list = []
-                        for _id in _ids:
-                            if int(_id) in exists_id:
+                        for id in ids:
+                            if await self.mongoDb_hander.is_exist(
+                                key="id", value=int(id), collection=name
+                            ):
                                 continue
                             _recorder = self.info_recorder.record_in_Db(
-                                work_id=_id, work_type=key, collection=collection
+                                work_id=id, work_type=key, user_name=name
                             )
                             task = asyncio.create_task(_recorder)
                             task_list.append(task)
-                        futurelist = await asyncio.gather(*task_list)
-                        for res in futurelist:
-                            if not self.__event.is_set():
-                                return
+                        await asyncio.gather(*task_list)
             else:
                 print("No Ids!")
 
@@ -121,7 +113,7 @@ class WorkInfoRecorder:
             self.logger.info("获取所有作者的作品信息完成")
             return True
 
-    async def get_user_work_id(self, user: tuple[str, str]) -> tuple[str, dict]:
+    async def get_user_work_id(self, user: tuple[str, str]) -> dict:
         async with self.semaphore:
             """获取作者所有作品的id"""
             Ids = {}
@@ -205,6 +197,8 @@ class WorkInfoRecorder:
                 Ids["manga"] = manga
             if len(novels) != 0 and self.download_type.get("novel"):
                 Ids["novels"] = novels
+            """
+                TODO
             if len(mangaSeries) != 0 and self.download_type.get("mangaSeries"):
                 mangaSeries_1 = str(re.findall("'id':.*?,", mangaSeries, re.S))
                 mangaSeries_ids = re.findall("[0-9]+", mangaSeries_1, re.S)
@@ -213,33 +207,9 @@ class WorkInfoRecorder:
                 novelSeries_1 = str(re.findall("'id':.*?,", novelSeries, re.S))
                 novelSeries_ids = re.findall("[0-9]+", novelSeries_1, re.S)
                 Ids["novelSeries"] = novelSeries_ids
+            """
 
-            return (name, Ids)
-
-    async def mongoDB_auto_backup(self) -> bool:
-        self.logger.info("开始自动备份,请勿关闭程序!!!")
-        names = await self.db.list_collection_names()
-        for name in names:
-            collection = self.db[name]
-            # 可不用
-            async with self.semaphore:
-                async for docs in collection.find(
-                    {"id": {"$exists": True}}, {"_id": 0}
-                ):
-                    if not self.__event.is_set():
-                        self.logger.info("停止自动备份!")
-                        return False
-                    if len(docs) >= 9:
-                        b = await self.backup_collection.find_one(
-                            {"id": docs.get("id")}
-                        )
-                        if b:
-                            continue
-                        else:
-                            await self.backup_collection.insert_one(docs)
-                            # print(c)
-        self.logger.info("自动备份完成!")
-        return True
+            return Ids
 
     def set_version(self, version: str):
         self.__version = version
@@ -255,16 +225,14 @@ class InfoRecorder:
         clientpool: ClientPool,
         logger: logging.Logger,
         semaphore: asyncio.Semaphore,
-        tags_collection: motor_asyncio.AsyncIOMotorCollection,
-        followings_collection: motor_asyncio.AsyncIOMotorCollection,
+        mongoDb_hander: MongoDBHander,
     ):
         self.clientpool = clientpool
         self.logger = logger
         self.semaphore = semaphore
-        self.tags_collection = tags_collection
-        self.followings_collection = followings_collection
+        self.mongoDb_hander = mongoDb_hander
 
-    async def _get_info(self, work_id: str, work_type) -> dict | None:
+    async def _get_info(self, work_id: str, work_type: str) -> dict | None:
         """
         Get detailed information about a work
 
@@ -373,9 +341,11 @@ class InfoRecorder:
             # print(info)
             return info
 
-    async def record_in_Db(self, work_id: str, work_type, collection):
+    async def record_in_Db(self, work_id: str, work_type: str, user_name: str):
         info = await self._get_info(work_id=work_id, work_type=work_type)
-        res = await collection.insert_one(info)
+        res = await self.mongoDb_hander.insert_one(
+            document=info, collection=user_name, backup=True
+        )
         assert res, "记录info失败------%s" % info
         await self._record_in_tags(info.get("id"), info.get("tags"))
         await self._record_in_user(userName=info["username"], info=info)
@@ -385,7 +355,9 @@ class InfoRecorder:
     async def _record_in_tags(self, id: int, tags: dict) -> None:
         # TODO 检查
         for name, translate in tags.items():
-            earlier = await self.tags_collection.find_one({"name": name})
+            earlier = await self.mongoDb_hander.find_one(
+                key="name", value=name, collection="tags"
+            )
             if earlier:
                 workids = earlier.get("workids")
                 if workids:
@@ -396,58 +368,68 @@ class InfoRecorder:
                 works_count = earlier.get("works_count") + 1
                 earlier_translate = earlier.get("translate")
                 if earlier_translate is None and translate:
-                    await self.tags_collection.update_one(
-                        {"name": name},
-                        {
-                            "$set": {
-                                "translate": translate,
-                                "works_count": works_count,
-                                "workids": workids,
-                            }
+                    await self.mongoDb_hander.set_one(
+                        key="name",
+                        value=name,
+                        setter={
+                            "translate": translate,
+                            "works_count": works_count,
+                            "workids": workids,
                         },
+                        collection="tags",
                     )
                 elif earlier_translate and translate:
                     if translate in earlier_translate.split("||"):
-                        await self.tags_collection.update_one(
-                            {"name": name},
-                            {"$set": {"works_count": works_count, "workids": workids}},
+                        await self.mongoDb_hander.set_one(
+                            key="name",
+                            value=name,
+                            setter={"works_count": works_count, "workids": workids},
+                            collection="tags",
                         )
                     else:
-                        await self.tags_collection.update_one(
-                            {"name": name},
-                            {
-                                "$set": {
-                                    "translate": earlier_translate + "||" + translate,
-                                    "works_count": works_count,
-                                    "workids": workids,
-                                }
+                        await self.mongoDb_hander.set_one(
+                            key="name",
+                            value=name,
+                            setter={
+                                "translate": earlier_translate + "||" + translate,
+                                "works_count": works_count,
+                                "workids": workids,
                             },
+                            collection="tags",
                         )
                 elif (earlier_translate and translate) is None:
-                    await self.tags_collection.update_one(
-                        {"name": name},
-                        {"$set": {"works_count": works_count, "workids": workids}},
+                    await self.mongoDb_hander.set_one(
+                        key="name",
+                        value=name,
+                        setter={"works_count": works_count, "workids": workids},
+                        collection="tags",
                     )
                 else:
                     print(id)
                     return
             else:
-                res = await self.tags_collection.insert_one(
+                res = await self.mongoDb_hander.insert_one(
                     {
                         "name": name,
                         "translate": translate,
                         "works_count": 1,
                         "workids": [id],
-                    }
+                    },
+                    collection="tags",
                 )
                 assert res, "记录tag失败------%s" % id
 
     async def _record_in_user(self, userName: str, info: dict) -> None:
-        userinfo = await self.followings_collection.find_one({"userName": userName})
+        userinfo = await self.mongoDb_hander.find_one(
+            key="userName", value=userName, collection="followings"
+        )
         earlier_newest_works = userinfo.get("newestWorks")
         if earlier_newest_works is None:
-            assert await self.followings_collection.find_one_and_update(
-                {"userName": userName}, {"$set": {"newestWorks": [info]}}
+            assert await self.mongoDb_hander.set_one(
+                key="userName",
+                value=userName,
+                setter={"newestWorks": [info]},
+                collection="followings",
             )
         else:
             earlier_newest_works.append(info)
@@ -456,8 +438,11 @@ class InfoRecorder:
             )
             if len(newest_works) > 4:
                 newest_works.pop(4)
-            assert await self.followings_collection.update_one(
-                {"userName": userName}, {"$set": {"newestWorks": newest_works}}
+            assert self.mongoDb_hander.set_one(
+                key="userName",
+                value=userName,
+                setter={"newestWorks": newest_works},
+                collection="followings",
             )
 
     def timeconverter(self, dict_item) -> int:
@@ -497,10 +482,12 @@ class InfoParsel:
                 self.work_type = "manga"
             elif work_type == 2:
                 self.work_type = "ugoira"
-            self.work_info = work_info
+            else:
+                print(work_type)
+                print(6)
         elif self.infos[0] == "novel":
             self.work_type = "novel"
-            self.work_info = work_info
+        self.work_info = work_info
         # 共有作品信息
         tags = {}
         for text in self.work_info.get("tags").get("tags"):
@@ -624,13 +611,16 @@ class InfoParsel:
             if (
                 (self.work_type == "illust")
                 or (self.work_type == "manga")
-                or (self.work_type == "ugoria")
+                or (self.work_type == "ugoira")
             ):
                 result = await self.fetch_artworks_links()
             elif self.work_type == "novel":
                 result = self.fetch_novel()
+            elif self.work_type == "novel":
+                result = self.fetch_novel()
             else:
                 print(6)
+                print(self.work_type)
             return result
         except AttributeError:
             return result

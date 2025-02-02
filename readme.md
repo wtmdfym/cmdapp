@@ -31,6 +31,9 @@
 - [x] flutter (在flutter项目内)
 
 ## updates:
+- 1.0.3
+  - 优化数据库操作
+  - 修复bug
 - 1.0.2
   - 优化下载器的代码。
   - 实现小说封面和作者profileImage的下载

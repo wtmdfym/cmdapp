@@ -1,6 +1,6 @@
 import asyncio
 import httpx
-from motor import motor_asyncio
+from mongoDB_hander import MongoDBHander
 
 
 class FollowingsRecorder:
@@ -28,39 +28,12 @@ class FollowingsRecorder:
     def __init__(
         self,
         client,
-        asyncdb: motor_asyncio.AsyncIOMotorDatabase,
+        mongoDb_hander: MongoDBHander,
         logger,
         semaphore: asyncio.Semaphore,
     ):
-        """Initialize followingrecoder class
-
-        Initialize class variables and stop event
-
-        Args:
-            cookies(dict):The cookies of pixiv
-            asyncdb(AsyncIOMotorDatabase):AsyncIOMotorDatabase of MongoDB
-            logger(:class:`logging.Logger`):The instantiated object of logging.Logger
-            progress_singal(:class:`PyQt6.QtCore.pyqtSignal`):The pyqtSignal of QProgressBar
-        """
-        """
-        self.cookies = config_dict.get('cookies')
-        self.headers = {
-            "User-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
-                (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.188",
-            "referer": "https://www.pixiv.net/"}
-        limits = httpx.Limits(
-            max_keepalive_connections=config_dict.get("semaphore"), max_connections=config_dict.get("semaphore"))
-        # 获取代理
-        self.mounts = {
-            "http://": httpx.AsyncHTTPTransport(proxy=config_dict.get("http_proxies"),
-                                                limits=limits, retries=3),
-            "https://": httpx.AsyncHTTPTransport(proxy=config_dict.get("https_proxies"),
-                                                 limits=limits, retries=3),
-        }
-        self.client = httpx.AsyncClient(headers=self.headers, cookies=self.cookies, mounts=self.mounts)
-        """
         self.client = client
-        self.asyncdb = asyncdb
+        self.mongoDb_hander = mongoDb_hander
         self.logger = logger
         self.semaphore = semaphore
         self.__event.set()
@@ -70,7 +43,6 @@ class FollowingsRecorder:
         if not self.__event.is_set():
             return 0
         self.logger.info("开始更新数据库......")
-        followings_collection = self.asyncdb["All Followings"]
         # 记录当前关注的作者信息
         userId_list = []
         info_count = len(following_infos)
@@ -81,7 +53,9 @@ class FollowingsRecorder:
             # 跳过Pixiv官方的账户
             if userId == "11":
                 continue
-            earlier = await followings_collection.find_one({"userId": userId})
+            earlier = await self.mongoDb_hander.find_one(
+                key="userId", value=userId, collection="followings"
+            )
             userName = following.get("userName")
             userComment = following.get("userComment")
             profileImageUrl = following.get("profileImageUrl")
@@ -96,10 +70,15 @@ class FollowingsRecorder:
                     self.logger.debug(
                         "Updating:%s to %s" % (earlier_userName, userName)
                     )
-                    await self.__async_rename_collection(earlier_userName, userName)
+                    await self.mongoDb_hander.rename_user_collection(
+                        earlier_userName, userName
+                    )
                     # make sure update is successful
-                    result = await followings_collection.update_one(
-                        {"userId": userId}, {"$set": {"userName": userName}}
+                    result = await self.mongoDb_hander.set_one(
+                        key="userId",
+                        value=userId,
+                        setter={"userName": userName},
+                        collection="followings",
                     )
                     if result:
                         self.logger.debug("Update Success")
@@ -107,8 +86,11 @@ class FollowingsRecorder:
                         raise Exception("update failed")
                 if earlier_userComment != userComment:
                     self.logger.debug("Updating userComment......")
-                    result = await followings_collection.update_one(
-                        {"userId": userId}, {"$set": {"userComment": userComment}}
+                    result = await self.mongoDb_hander.set_one(
+                        key="userId",
+                        value=userId,
+                        setter={"userComment": userComment},
+                        collection="followings",
                     )
                     # make sure update is successful
                     if result:
@@ -117,9 +99,11 @@ class FollowingsRecorder:
                         raise Exception("Update Failed")
                 if earlier_profileImageUrl != profileImageUrl:
                     self.logger.debug("Updating profileImageUrl......")
-                    result = await followings_collection.update_one(
-                        {"userId": userId},
-                        {"$set": {"profileImageUrl": profileImageUrl}},
+                    result = await self.mongoDb_hander.set_one(
+                        key="userId",
+                        value=userId,
+                        setter={"profileImageUrl": profileImageUrl},
+                        collection="followings",
                     )
                     # make sure update is successful
                     if result:
@@ -130,13 +114,14 @@ class FollowingsRecorder:
                 self.logger.debug(
                     "recording:{}".format({"userId": userId, "userName": userName})
                 )
-                result = await followings_collection.insert_one(
+                result = await self.mongoDb_hander.insert_one(
                     {
                         "userId": userId,
                         "userName": userName,
                         "userComment": userComment,
                         "profileImageUrl": profileImageUrl,
-                    }
+                    },
+                    collection="followings",
                 )
                 # make sure update is successful
                 if result:
@@ -144,7 +129,7 @@ class FollowingsRecorder:
                 else:
                     raise Exception("Insert Failed")
         # 检查是否有已取消关注的作者
-        earliers = followings_collection.find({"userId": {"$exists": "true"}})
+        earliers = self.mongoDb_hander.find_exist("userId", collection="followings")
         # count = 0
         # info_count = followings_collection.count_documents(
         #     {"userId": {"$exists": "true"}}
@@ -155,15 +140,21 @@ class FollowingsRecorder:
             not_following_now = earlier.get("not_following_now")
             if userId in userId_list:
                 if not_following_now:
-                    earlier.pop("not_following_now")
-                    await followings_collection.find_one_and_replace(
-                        {"userId": userId}, earlier
+                    await self.mongoDb_hander.unset_one(
+                        key="userId",
+                        value=userId,
+                        unset="not_following_now",
+                        collection="followings",
                     )
                     print("已重新关注:%s" % {"userId": userId, "userName": userName})
             else:
-                await followings_collection.find_one_and_update(
-                    {"userId": userId}, {"$set": {"not_following_now": True}}
-                )
+                if not not_following_now:
+                    await self.mongoDb_hander.set_one(
+                        key="userId",
+                        value=userId,
+                        setter={"not_following_now": True},
+                        collection="followings",
+                    )
                 print("已取消关注:%s" % {"userId": userId, "userName": userName})
         self.logger.info("更新数据库完成")
         return 1
@@ -196,7 +187,7 @@ class FollowingsRecorder:
                     return
                 body = followings_json.get("body")
                 following = body.get("following")
-                following_infos = await self.__async_get_my_followings(following)
+                following_infos = await self.__get_followings(following)
                 success = await self.following_recorder(following_infos)
             except asyncio.exceptions.TimeoutError:
                 self.logger.warning("连接超时!  请检查你的网络!")
@@ -246,7 +237,7 @@ class FollowingsRecorder:
         # print(bookmarked_works)
         # print(len(bookmarked_works))
 
-    async def __async_get_my_followings(self, following: int):
+    async def __get_followings(self, following: int):
         following_url = "https://www.pixiv.net/ajax/user/83945559/following?offset={offset}\
             &limit=24&rest=show&tag=&acceptingRequests=0&lang=zh&version={version}"
         userinfos = []
@@ -290,27 +281,6 @@ class FollowingsRecorder:
 
         self.logger.info("获取关注作者完成")
         return userinfos
-
-    async def __async_rename_collection(self, name1: str, name2: str) -> None:
-        """Rename the MongoDB collection
-
-        Rename the collection when the author you follow changes the name
-
-        Args:
-            name1(str): The original name of a collection
-            name2(str): The new name of a collection
-
-        Returns:
-            None
-        """
-        self.logger.debug("重命名数据库......")
-        collection_1 = self.asyncdb[name1]
-        collection_2 = self.asyncdb[name2]
-        async for doc in collection_1.find({"id": {"$exists": True}}):
-            # print(doc)
-            doc.update({"username": name2})
-            await collection_2.insert_one(doc)
-        await collection_1.drop()
 
     def set_version(self, version: str) -> None:
         self.__version = version

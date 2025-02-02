@@ -12,7 +12,7 @@ from PyQt6.QtCore import (
     QRect,
     Qt,
 )
-from PyQt6.QtGui import QImageReader, QFont     # , QAction, QIcon
+from PyQt6.QtGui import QImageReader, QFont  # , QAction, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -28,7 +28,15 @@ from PyQt6.QtWidgets import (
 
 # from GUI.widgets import
 # , ImageTab, OriginalImageTab
-from GUIcmd.tabs import MainTab, SearchTab, TagsTab, UserTab, ConfigTab, ImageTab, OriginalImageTab
+from GUIcmd.tabs import (
+    MainTab,
+    SearchTab,
+    TagsTab,
+    UserTab,
+    ConfigTab,
+    ImageTab,
+    OriginalImageTab,
+)
 from Tool import MyLogging, ConfigSetter
 
 
@@ -45,7 +53,8 @@ class MainWindow(QMainWindow):
             os.path.abspath(os.path.dirname(__file__)), "config.json"
         )
         self.config_dict = ConfigSetter.get_config(
-            self.config_save_path, self.default_config_save_path)
+            self.config_save_path, self.default_config_save_path
+        )
         client = pymongo.MongoClient("localhost", 27017)
         self.db = client["pixiv"]
         self.backup_collection = client["backup"]["backup of pixiv infos"]
@@ -96,14 +105,26 @@ class MainWindow(QMainWindow):
         self.tabWidget.tabCloseRequested.connect(self.close_tab)
         # self.tabWidget.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
         # 初始化MainTab
-        self.tab = MainTab(self, self.config_dict, self.config_save_path, loop,
-                           asyncdb, asyncbackupcollection, logger)
+        self.tab = MainTab(
+            self,
+            self.config_dict,
+            self.config_save_path,
+            loop,
+            asyncdb,
+            asyncbackupcollection,
+            logger,
+        )
         self.tab.setObjectName("MainTab")
         self.tabWidget.addTab(self.tab, "")
         # 初始化SearchTab
         self.tab_1 = SearchTab(
-            self, self.config_dict["save_path"], logger, self.backup_collection,
-            self.creat_image_tab, self.config_dict["use_thumbnail"])
+            self,
+            self.config_dict["save_path"],
+            logger,
+            self.backup_collection,
+            self.creat_image_tab,
+            self.config_dict["use_thumbnail"],
+        )
         self.tab_1.setObjectName("SearchTab")
         self.tabWidget.addTab(self.tab_1, "")
         # 初始化TagsTab
@@ -117,12 +138,23 @@ class MainWindow(QMainWindow):
         self.tabWidget.addTab(self.tab_2, "")
         # 初始化UserTab
         self.tab_3 = UserTab(
-            self, logger, self.db, self.config_dict["save_path"], self.config_dict["use_thumbnail"])
+            self,
+            logger,
+            self.db,
+            self.config_dict["save_path"],
+            self.config_dict["use_thumbnail"],
+        )
         self.tab_3.setObjectName("UserTab")
         self.tabWidget.addTab(self.tab_3, "")
         # 初始化ConfigsTab
-        self.tab_4 = ConfigTab(self, logger, self.config_dict,
-                               self.config_save_path, self.db, self.reloadUI)
+        self.tab_4 = ConfigTab(
+            self,
+            logger,
+            self.config_dict,
+            self.config_save_path,
+            self.db,
+            self.reloadUI,
+        )
         self.tab_4.setObjectName("ConfigsTab")
         self.tabWidget.addTab(self.tab_4, "")
         # 设置主窗口
@@ -151,28 +183,23 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.tab.retranslateUi()
         self.tabWidget.setTabText(
-            self.tabWidget.indexOf(self.tab), _translate(
-                "MainWindow", "Main")
+            self.tabWidget.indexOf(self.tab), _translate("MainWindow", "Main")
         )
         self.tab_1.retranslateUi()
         self.tabWidget.setTabText(
-            self.tabWidget.indexOf(self.tab_1), _translate(
-                "MainWindow", "Search")
+            self.tabWidget.indexOf(self.tab_1), _translate("MainWindow", "Search")
         )
         self.tab_2.retranslateUi()
         self.tabWidget.setTabText(
-            self.tabWidget.indexOf(self.tab_2), _translate(
-                "MainWindow", "Tags")
+            self.tabWidget.indexOf(self.tab_2), _translate("MainWindow", "Tags")
         )
         self.tab_3.retranslateUi()
         self.tabWidget.setTabText(
-            self.tabWidget.indexOf(self.tab_3), _translate(
-                "MainWindow", "User")
+            self.tabWidget.indexOf(self.tab_3), _translate("MainWindow", "User")
         )
         self.tab_4.retranslateUi()
         self.tabWidget.setTabText(
-            self.tabWidget.indexOf(self.tab_4), _translate(
-                "MainWindow", "Settings")
+            self.tabWidget.indexOf(self.tab_4), _translate("MainWindow", "Settings")
         )
         self.menuHelp.setTitle(_translate("MainWindow", "Help"))
 
@@ -215,7 +242,8 @@ class MainWindow(QMainWindow):
         # 重新加载设置
         global config_dict, logger
         config_dict = ConfigSetter.get_config(
-            self.config_save_path, self.default_config_save_path)
+            self.config_save_path, self.default_config_save_path
+        )
         """
         # 弹出提示框
         info_box = QMessageBox()
@@ -240,16 +268,23 @@ class MainWindow(QMainWindow):
             if len(image_data.get("relative_path")) == 1:
                 tab = OriginalImageTab(image_data)
                 tab.open_image(
-                    self.config_dict["save_path"]+image_data.get("relative_path")[0])
+                    self.config_dict["save_path"] + image_data.get("relative_path")[0]
+                )
             else:
-                tab = ImageTab(self, self.config_dict["save_path"], logger, image_data,
-                                        self.creat_image_tab, self.config_dict["use_thumbnail"])
+                tab = ImageTab(
+                    self,
+                    self.config_dict["save_path"],
+                    logger,
+                    image_data,
+                    self.creat_image_tab,
+                    self.config_dict["use_thumbnail"],
+                )
             index = self.tabWidget.insertTab(2, tab, str(id))
         else:
             id = image_data[0]
             img_path = image_data[1]
-            tab = OriginalImageTab()   # image_data[2]
-            tab.open_image(self.config_dict["save_path"]+img_path)
+            tab = OriginalImageTab()  # image_data[2]
+            tab.open_image(self.config_dict["save_path"] + img_path)
             index = self.tabWidget.insertTab(self.tab_count - 3, tab, str(id))
         self.tabWidget.setCurrentIndex(index)
         self.tab_count += 1
@@ -288,10 +323,12 @@ if __name__ == "__main__":
     # 初始化设置信息
     logger.info("读取配置文件......")
     app_path = os.path.dirname(__file__)
-    default_config_save_path = os.path.join(os.path.abspath(app_path), "default_config.json")
+    default_config_save_path = os.path.join(
+        os.path.abspath(app_path), "default_config.json"
+    )
     config_save_path = os.path.join(os.path.abspath(app_path), "config.json")
     config_dict = ConfigSetter.get_config(config_save_path, default_config_save_path)
-    
+
     # 初始化协程事件循环
     logger.info("初始化协程事件循环......")
     loop = asyncio.new_event_loop()
@@ -299,7 +336,7 @@ if __name__ == "__main__":
 
     # 初始化数据库
     logger.info("初始化数据库......")
-    asyncclient = motor_asyncio.AsyncIOMotorClient('localhost', 27017, io_loop=loop)
+    asyncclient = motor_asyncio.AsyncIOMotorClient("localhost", 27017, io_loop=loop)
     asyncdb = asyncclient["pixiv"]
     asyncbackupcollection = asyncclient["backup"]["backup of pixiv infos"]
 

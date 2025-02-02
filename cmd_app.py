@@ -10,6 +10,7 @@ from motor import motor_asyncio
 from infoRecorders import FollowingsRecorder, WorkInfoRecorder
 from downloader import Analyzer
 from Tool import *
+from mongoDB_hander import MongoDBHander
 
 
 class AsyncThreadingManager:
@@ -26,8 +27,6 @@ class AsyncThreadingManager:
         config_dict: dict,
         config_save_path,
         loop: asyncio.AbstractEventLoop,
-        asyncdb,
-        asyncbackupcollection,
         logger: logging.Logger,
     ) -> None:
         super().__init__()
@@ -36,9 +35,8 @@ class AsyncThreadingManager:
         self.config_dict = config_dict
         self.config_save_path = config_save_path
         self.loop = loop
-        self.asyncdb = asyncdb
-        self.asyncbackup_collection = asyncbackupcollection
         self.logger = logger
+        self.mongoDb_hander = MongoDBHander(logger=logger, loop=loop)
         self.clientpool = ClientPool(config_dict, config_save_path, logger)
         # 设置最大并发量
         self.semaphore = asyncio.Semaphore(config_dict["semaphore"])
@@ -55,28 +53,29 @@ class AsyncThreadingManager:
             asyncio.set_event_loop(loop)"""
         newtime = time.strftime("%Y%m%d%H%M%S")
 
-        """if compare_datetime(
-            self.config_dict["last_record_time"], newtime
-        ):
+        if compare_datetime(self.config_dict["last_record_time"], newtime):
             # 获取关注的作者
             if self.ifstop:
                 self.loop.stop()
                 return
             self.followings_recorder = FollowingsRecorder(
-                self.clientpool.myclient, self.asyncdb, self.logger,self.semaphore    # , self.progress_signal
+                self.clientpool.myclient,
+                self.mongoDb_hander,
+                self.logger,
+                self.semaphore,  # , self.progress_signal
             )
             self.followings_recorder.set_version(self.version)
             # success = self.loop.run_until_complete(asyncio.ensure_future(
             #     self.followings_recorder.bookmarked_work_fetcher()))
-            '''
+            """
             success = self.loop.run_until_complete(asyncio.ensure_future(
                 self.followings_recorder.following_work_fetcher()))
             # success = await self.followings_recorder.following_work_fetcher()
             if not success:
                 # self.break_signal.emit()
                 self.loop.stop()
-                exit(0) 
-                return'''
+                exit(0)
+                return"""
             del self.followings_recorder
             # 获取关注的作者的信息
             if self.ifstop:
@@ -85,24 +84,22 @@ class AsyncThreadingManager:
             self.info_getter = WorkInfoRecorder(
                 self.clientpool,
                 self.config_dict["download_type"],
-                self.asyncdb,
-                self.asyncbackup_collection,
+                self.mongoDb_hander,
                 self.logger,
-                self.semaphore
+                self.semaphore,
             )
             self.info_getter.set_version(self.version)
-            success = self.loop.run_until_complete(asyncio.ensure_future(
-                self.info_getter.start_get_info()))
+            success = self.loop.run_until_complete(
+                asyncio.ensure_future(self.info_getter.start_get_info())
+            )
             # success = await self.info_getter.start_get_info()
             if success:
                 self.config_dict.update({"last_record_time": newtime})
-                ConfigSetter.set_config(
-                    self.config_save_path, self.config_dict)
+                ConfigSetter.set_config(self.config_save_path, self.config_dict)
             del self.info_getter
         else:
             self.logger.info("最近已获取,跳过")
         # exit(0)
-        """
         # 下载作品
         if self.ifstop:
             self.loop.stop()
@@ -113,8 +110,7 @@ class AsyncThreadingManager:
             self.clientpool,
             self.config_dict["download_type"],
             self.semaphore,
-            self.asyncbackup_collection,
-            self.asyncdb["All Followings"],
+            self.mongoDb_hander,
             self.logger,
         )
         loop.run_until_complete(asyncio.ensure_future(self.downloader.start_download()))
@@ -181,16 +177,8 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # 初始化数据库
-    logger.info("初始化数据库......")
-    asyncclient = motor_asyncio.AsyncIOMotorClient("localhost", 27017, io_loop=loop)
-    asyncdb = asyncclient["pixiv"]
-    asyncbackupcollection = asyncclient["backup"]["backup of pixiv infos"]
-
     # 实例化爬虫管理类
-    manager = AsyncThreadingManager(
-        config_dict, config_save_path, loop, asyncdb, asyncbackupcollection, logger
-    )
+    manager = AsyncThreadingManager(config_dict, config_save_path, loop, logger)
 
     # 终止信号处理
     signal.signal(signal.SIGINT, terminate_signal_handler)
