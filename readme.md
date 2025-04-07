@@ -1,7 +1,7 @@
 # 关于cmdapp
 
     这是独立出来的可以在命令行中运行的app
-    主要用于与GUI框架搭配，实现模块化
+    主要用于与GUI框架搭配
 
 ## 路线图
 
@@ -14,16 +14,16 @@
 - [ ] id
 - [ ] tag
 - [ ] uid
-- [ ] bookmarks
+- [x] bookmarks
 - [x] followings
 - [ ] discovery
 - [ ] ranking
 ### 支持的下载类型
 - [x] illust
 - [x] manga
-- [ ] Series
-- [x] novel
 - [x] ugoira
+- [x] novel
+- [ ] series
 - [ ] 小说插入的插画？
 ### GUI适配
 - [x] pyQt
@@ -31,6 +31,11 @@
 - [x] flutter (在flutter项目内)
 
 ## updates:
+- 2.0.0
+  - 优化代码结构
+  - 支持获取收藏的作品
+  - 更新类型检查方式，减少错误
+  - 更新信息获取方式，适配pixiv新版接口 (不用再解析网页了，直接访问接口就可以获得作品信息(其实早就有了，但是现在html用不了了分析网络请求才发现))
 - 1.0.3
   - 优化数据库操作
   - 修复bug
