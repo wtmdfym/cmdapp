@@ -2,6 +2,7 @@ import re, time
 from typing import Literal
 from common import ClientPool, ResponseHander, MongoDBHander
 from logging import Logger
+from asyncio import Semaphore
 
 
 class WorkInfoRecorder:
@@ -11,10 +12,12 @@ class WorkInfoRecorder:
         clientpool: ClientPool,
         logger: Logger,
         mongoDb_hander: MongoDBHander,
+        semaphore: Semaphore,
     ):
         self.clientpool = clientpool
         self.logger = logger
         self.mongoDb_hander = mongoDb_hander
+        self.semaphore = semaphore
 
     async def record_work_info(
         self,
@@ -26,27 +29,28 @@ class WorkInfoRecorder:
         ## Make sure the work info is not exist before call this function.
         - manga and ugoira are included in illust.
         """
-        info = await self._fetch_info(
-            work_id=work_id, work_type=work_type, isbookmarked=isbookmarked
-        )
-        if info is None:
-            return None
-        if isbookmarked:
-            res = await self._record_in_bookmarks(info)
-            assert res, f"Record info failed.\nContent: {info}"
-        else:
-            # Check
-            res = await self.mongoDb_hander.insert_one(
-                document=info, collection=info["username"], backup=True
+        async with self.semaphore:
+            info = await self._fetch_info(
+                work_id=work_id, work_type=work_type, isbookmarked=isbookmarked
             )
-            assert res, f"Record info failed.\nContent: {info}"
+            if info is None:
+                return None
+            if isbookmarked:
+                res = await self._record_in_bookmarks(info)
+                assert res, f"Record info failed.\nContent: {info}"
+            else:
+                # Check
+                res = await self.mongoDb_hander.insert_one(
+                    document=info, collection=info["username"], backup=True
+                )
+                assert res, f"Record info failed.\nContent: {info}"
 
-            await self._record_in_tags(info["id"], info["tags"])
-            await self._record_in_user(info=info)
-            # 突然意识到使用连接池的话这个就没有意义了。。。。。。
-            # if info["likeData"]:
-            #     await self._record_in_bookmarks(info)
-        return None
+                await self._record_in_tags(info["id"], info["tags"])
+                await self._record_in_user(info=info)
+                # 突然意识到使用连接池的话这个就没有意义了。。。。。。
+                # if info["likeData"]:
+                #     await self._record_in_bookmarks(info)
+            return None
 
     async def _fetch_info(
         self,
@@ -489,7 +493,7 @@ class WorkInfoRecorder:
         return inttime
 
     def stop_all_request(self) -> None:
-        # TODO 
+        # TODO
         return None
 
 

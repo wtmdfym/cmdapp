@@ -1,15 +1,16 @@
 import json
 from httpx import Response
-from parsel import Selector
+# from parsel import Selector
 from logging import Logger
 from typing import Literal, Any
+from utils.retry import ExecuteResult
 
 
 class ResponseHander:
     def __init__(self, logger: Logger, isjson: bool):
         self.logger: Logger = logger
         self.isjson: bool = isjson
-        self.res_code: Literal[0, 1, 2, 3] = 0
+        self.res_code: ExecuteResult = ExecuteResult.SUCCESS
         """ 
         - 0-success
         - 1-fail
@@ -33,7 +34,7 @@ class ResponseHander:
         - **REQUIRE** = dict[]
             split by `.`
 
-        - **SELECT** = Selector.param1(param2).get()
+        - **SELECT(unuse)** = Selector.param1(param2).get()
             param1 -> xpath/css(str)
             param2 -> query
             split by `..`
@@ -112,7 +113,7 @@ class ResponseHander:
                 except AttributeError:
                     return False
             elif processor == "SELECT":
-
+                return False
                 if not isinstance(res, str):
                     raise ProcessorError(processor=processor, data_type=type(res))
                 getter = value.split("..")

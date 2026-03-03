@@ -40,6 +40,7 @@ class DownloadHander:
         self.semaphore = Semaphore(config_hander.require_config("semaphore"))
         self.__event.set()
         self.image_downloader = ImageDownloader(
+            parent=self,
             clientpool=clientpool,
             semaphore=self.semaphore,
             mongoDb_hander=mongoDb_hander,
@@ -67,25 +68,24 @@ class DownloadHander:
         # TODO 更新
         self.logger.info("Downloading user profile image......")
         tasks = []
-        async with self.semaphore:
-            async for doc in self.mongoDb_hander.find_exist(
-                key="userId", collection="followings"
-            ):
-                if not self.__event.is_set():
-                    return False
-                # 跳过已经取消关注的作者
-                if doc.get("not_following_now"):
-                    continue
+        async for doc in self.mongoDb_hander.find_exist(
+            key="userId", collection="followings"
+        ):
+            if not self.__event.is_set():
+                return False
+            # 跳过已经取消关注的作者
+            if doc.get("not_following_now"):
+                continue
 
-                doc["type"] = "user"
+            doc["type"] = "user"
 
-                infos = self._info_maker(doc=doc)
-                if not infos:
-                    return False
-                # TODO 信息显示混乱
-                tasks.append(create_task(self.async_download_manger(infos)))
-                # await
-            await gather(*tasks)
+            infos = self._info_maker(doc=doc)
+            if not infos:
+                return False
+            # TODO 信息显示混乱
+            tasks.append(create_task(self.async_download_manger(infos)))
+            # await
+        await gather(*tasks)
 
         self.logger.info("Download user profile image complete.")
         return True
@@ -95,34 +95,31 @@ class DownloadHander:
         Download followings image.
         """
         self.logger.info(
-            "Downloading followings image......\n This may take some time to check downloaded image."
+            "Downloading followings image......\tThis may take some time to check downloaded image."
         )
-        async with self.semaphore:
-            async for doc in self.mongoDb_hander.find_exist(
-                key="id", collection="backup"
-            ):
-                if not self.__event.is_set():
-                    return False
-                if doc.get("failcode"):
-                    continue
-                work_type = doc.get("type")
-                if not self.download_type.get(work_type):
-                    self.logger.warning(
-                        f"Work {work_type}  ID{doc.get('id')} not in download_type."
-                    )
-                    continue
-                # if type == "illust":
-                #     continue
-                # if type == "manga":
-                #     continue
-                # if type == "ugoira":
-                #     continue
-                # uid = doc.get("userId")
-                # print(doc)
-                infos = self._info_maker(doc=doc)
-                if not infos:
-                    return False
-                await self.async_download_manger(infos)
+        async for doc in self.mongoDb_hander.find_exist(key="id", collection="backup"):
+            if not self.__event.is_set():
+                return False
+            if doc.get("failcode"):
+                continue
+            work_type = doc.get("type")
+            if not self.download_type.get(work_type):
+                self.logger.warning(
+                    f"Work {work_type}  ID{doc.get('id')} not in download_type."
+                )
+                continue
+            # if type == "illust":
+            #     continue
+            # if type == "manga":
+            #     continue
+            # if type == "ugoira":
+            #     continue
+            # uid = doc.get("userId")
+            # print(doc)
+            infos = self._info_maker(doc=doc)
+            if not infos:
+                return False
+            await self.async_download_manger(infos)
         self.logger.info("Download followings image complete.")
         return True
 
@@ -219,8 +216,8 @@ class DownloadHander:
         if tasks:
             await gather(*tasks)
 
-    def stop_downloading(self):
+    def stop(self):
         self.__event.clear()
         self.image_downloader.stop()
-        self.logger.info("停止下载")
+        self.logger.info("Stop download")
         return

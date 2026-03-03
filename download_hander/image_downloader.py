@@ -4,6 +4,8 @@ from asyncio import Event, Semaphore
 from logging import Logger
 from common import ClientPool, MongoDBHander, ResponseHander, check_image, make_gif
 
+# from download_hander import DownloadHander
+
 
 class ImageDownloader:
     """
@@ -21,11 +23,13 @@ class ImageDownloader:
 
     def __init__(
         self,
+        parent,  # : DownloadHander,
         clientpool: ClientPool,
         semaphore: Semaphore,
         mongoDb_hander: MongoDBHander,
         logger: Logger,
     ) -> None:
+        self.parent = parent
         self.logger = logger
         self.clientpool = clientpool
         self.semaphore = semaphore
@@ -42,41 +46,44 @@ class ImageDownloader:
     async def download_image(
         self, work_id: str, url: str, referer_url: str, save_path: str, frames: list
     ):
-        if not self.__event.is_set():
-            return None
-        start_time = time.time()  # 程序开始时间
-        headers = self.clientpool.headers
-        headers.update({"referer": referer_url})
-        # GIF
-        if len(frames) > 0:
-            # print(info)
-            zip_path = work_id + ".zip"
-            image_dir = work_id + "/"
+        async with self.semaphore:
+            if not self.__event.is_set():
+                return None
+            start_time = time.time()  # 程序开始时间
+            headers = self.clientpool.headers
+            headers.update({"referer": referer_url})
+            # GIF
+            if len(frames) > 0:
+                # print(info)
+                zip_path = work_id + ".zip"
+                image_dir = work_id + "/"
 
-            self.logger.info(f"Download GIF......    ID: {work_id}")
-            success = await self._error_hander(url, headers, zip_path, is_image=False)
-            if success:
-                self.logger.info("Make GIF......")
-                success = make_gif(
-                    zip_path=zip_path,
-                    image_dir=image_dir,
-                    save_path=save_path,
-                    frames=frames,
+                self.logger.info(f"Download GIF......    ID: {work_id}")
+                success = await self._error_hander(
+                    url, headers, zip_path, is_image=False
                 )
+                if success:
+                    self.logger.info("Make GIF......")
+                    success = make_gif(
+                        zip_path=zip_path,
+                        image_dir=image_dir,
+                        save_path=save_path,
+                        frames=frames,
+                    )
 
-        # normal image
-        else:
-            self.logger.info(f"Download image......    ID: {work_id}")
-            success = await self._error_hander(url, headers, save_path)
+            # normal image
+            else:
+                self.logger.info(f"Download image......    ID: {work_id}")
+                success = await self._error_hander(url, headers, save_path)
 
-        if success:
-            end_time = time.time()  # 程序结束时间
-            run_time = end_time - start_time
-            self.logger.info(
-                f"Download work {work_id} [{(success/1024):.2f} kb] complete, spend time {run_time:.2f}s, save to {save_path}"
-            )
-        else:
-            self.logger.warning("Download work failed.")
+            if success:
+                end_time = time.time()  # 程序结束时间
+                run_time = end_time - start_time
+                self.logger.info(
+                    f"Download work {work_id} [{(success/1024):.2f} kb] complete, spend time {run_time:.2f}s, save to {save_path}"
+                )
+            else:
+                self.logger.warning("Download work failed.")
 
     async def _error_hander(
         self, url: str, headers: dict, save_path: str, is_image: bool = True
@@ -93,6 +100,7 @@ class ImageDownloader:
                 await self.mongoDb_hander.record_error()
             elif response_hander.res_code == 3:
                 self.stop()
+                self.parent.stop()
             return 0
         response = response_hander.origin_response
         if response is None:
@@ -118,4 +126,3 @@ class ImageDownloader:
 
     def stop(self):
         self.__event.clear()
-        return

@@ -1,0 +1,45 @@
+{
+    "host_path": "E:/pixiv/",
+    "myId": "83945559",
+    "cookies": {
+        "PHPSESSID": "83945559_WSSTNy6jeSUrKPoyGPRgYQtU5FcLXFjn"
+    },
+    "enable_proxy": true,
+    "http_proxies": "http://localhost:12334",
+    "https_proxies": "http://localhost:12334",
+    "enableIPixiv": true,
+    "ipixivHostPath": "https://i.pixiv.re",
+    "semaphore": 2,
+    "download_type": {
+        "illust": true,
+        "manga": true,
+        "novel": true,
+        "ugoira": true,
+        "series": false
+    },
+    "last_record_time": "20250716173819",
+    "enable_client_pool": true,
+    "client_pool": [
+        {
+            "email": "pixiv_webcrawler_1@proton.me",
+            "passward": "pixiv_webcrawler",
+            "cookies": {
+                "PHPSESSID": "107676858_LgvfJ7toNQylRD01r8giAacrnYgNGK0Q"
+            }
+        },
+        {
+            "email": "pweb2@tutamail.com",
+            "passward": "pixiv_webcrawler",
+            "cookies": {
+                "PHPSESSID": "107703613_SzkNLjJyufu91ItXCaBEQgVgKpbkqaRX"
+            }
+        },
+        {
+            "email": "pwebc3@outlook.com",
+            "passward": "pixiv_webcrawler",
+            "cookies": {
+                "PHPSESSID": "107690663_WS18zmGWTSyBBja09NcjjVJ6szlSYzmH"
+            }
+        }
+    ]
+}

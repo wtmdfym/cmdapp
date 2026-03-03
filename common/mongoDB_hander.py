@@ -1,12 +1,15 @@
 from logging import Logger
-from motor.motor_asyncio import *
-import asyncio
+from motor.motor_asyncio import (
+    AsyncIOMotorClient,
+    AsyncIOMotorCollection,
+    AsyncIOMotorCursor,
+)
+from asyncio import AbstractEventLoop
 
 
 class MongoDBHander:
-    def __init__(self, logger: Logger, loop: asyncio.AbstractEventLoop):
-        # 初始化数据库
-        logger.info("初始化数据库......")
+    def __init__(self, logger: Logger, loop: AbstractEventLoop):
+        logger.info("Initialize Database......")
         client = AsyncIOMotorClient("localhost", 27017, io_loop=loop)
         self.db = client["pixiv"]
         self.backup_collection = client["backup"]["backup of pixiv infos"]
@@ -36,8 +39,11 @@ class MongoDBHander:
     def find(self, key: str, value, collection: str) -> AsyncIOMotorCursor:
         return self._get_collection(collection).find({key: value}, {"_id": 0})
 
-    def find_one(self, key: str, value, collection: str):
-        return self._get_collection(collection).find_one({key: value}, {"_id": 0})
+    def find_one(self, key: str, value, collection: str, excludes: list[str] = []):
+        exclude_fields = {"_id": 0}
+        for exclude in excludes:
+            exclude_fields[exclude] = 0
+        return self._get_collection(collection).find_one({key: value}, exclude_fields)
 
     def find_exist(self, key: str, collection: str) -> AsyncIOMotorCursor:
         return self._get_collection(collection).find(
@@ -93,4 +99,8 @@ class MongoDBHander:
                             await self.backup_collection.insert_one(docs)
                             # print(c)
         self.logger.info("自动备份完成!")
+        return True
+
+    async def record_error(self) -> bool:
+        # TODO
         return True

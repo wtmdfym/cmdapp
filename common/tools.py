@@ -102,3 +102,43 @@ def check_image(path: str) -> bool:
 # print(check_image('C:/Users/Administrator/Desktop/120205761_p0.jpg'))
 # work_type = "manga"
 # print((work_type == "illust") or (work_type == "manga"))
+"""
+import httpx
+    from parsel import Selector
+
+    login_url = "https://accounts.pixiv.net/ajax/login"
+    payload = {
+        "login_id": "pweb2@tutamail.com",
+        "password": "pixiv_webcrawler",
+        "source":"pc",
+        "app_ios":0,
+        "ref":"",
+        "return_to":"https://www.pixiv.net/en/",
+        "g_recaptcha_response":"",
+        "recaptcha_enterprise_score_token":"",
+    }
+    UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+      "AppleWebKit/537.36 (KHTML, like Gecko) "
+      "Chrome/124.0 Safari/537.36")
+
+    # 用 Client 会自动在后续请求里携带 Cookie；follow_redirects=True 避免 30x 丢掉 Set-Cookie
+    with httpx.Client(headers={"User-Agent": UA, "Referer": "https://accounts.pixiv.net/"},follow_redirects=True) as client:
+        # ① 取 post_key
+        login_page = client.get("https://accounts.pixiv.net/login")
+        login_page.raise_for_status()
+        sel = Selector(login_page.text)
+        post_key = sel.css('#init-config').re(r'(?<="pixivAccount.tt":").{32}')[0]
+        print(post_key)
+        payload.update({"tt":post_key})
+        resp = client.post(login_url, data=payload)
+        print(resp.json())
+
+        # 打印所有 Set-Cookie 行
+        for cookie_line in resp.headers.get_list("set-cookie"):
+            print(cookie_line)
+
+        # 如果想看解析后的 Cookie 键值对：
+        print("--- parsed cookies ---")
+        for name, value in resp.cookies.items():
+            print(f"{name} = {value}")
+"""

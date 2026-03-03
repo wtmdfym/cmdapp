@@ -96,6 +96,8 @@ class FollowingsRecorder:
                 userId = await self._following_info_updater(user)
                 if userId is not None:
                     userId_list.append(userId)
+        # 不知道为什么不能关注？
+        # 3906246
         self.logger.info("Fetch complete.")
 
         self.logger.info("Checking not following users......")
@@ -139,7 +141,10 @@ class FollowingsRecorder:
         userComment = following_info.get("userComment")
         profileImageUrl = following_info.get("profileImageUrl")
         earlier = await self.mongoDb_hander.find_one(
-            key="userId", value=userId, collection="followings"
+            key="userId",
+            value=userId,
+            collection="followings",
+            excludes=["newestWorks"],
         )
 
         if earlier:
@@ -147,7 +152,7 @@ class FollowingsRecorder:
             earlier_userName = earlier.get("userName")
             earlier_userComment = earlier.get("userComment")
             earlier_profileImageUrl = earlier.get("profileImageUrl")
-            setter = earlier
+            setter = {}
             if earlier_userName != userName:
                 await self.mongoDb_hander.rename_user_collection(
                     earlier_userName, userName
@@ -157,7 +162,7 @@ class FollowingsRecorder:
                 setter["userComment"] = userComment
             if earlier_profileImageUrl != profileImageUrl:
                 setter["profileImageUrl"] = profileImageUrl
-            if setter != earlier:
+            if len(setter) > 0:
                 self.logger.info(f"Updating user info from {earlier} to {setter}.")
                 result = await self.mongoDb_hander.set_one(
                     key="userId",

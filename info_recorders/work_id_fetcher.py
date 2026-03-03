@@ -26,7 +26,6 @@ class WorkIdFetcher:
         clientpool: ClientPool,
         mongoDb_hander: MongoDBHander,
         logger: Logger,
-        myId: str,
     ):
         logger.info("Initialize work Id fetcher......")
         self.download_type = config_hander.require_config("download_type")
@@ -38,8 +37,9 @@ class WorkIdFetcher:
             clientpool=clientpool,
             logger=logger,
             mongoDb_hander=mongoDb_hander,
+            semaphore=self.semaphore
         )
-        self.myId = myId
+        self.myId = config_hander.require_config("myId")
         self.__event.set()
 
     async def start(self) -> bool:
@@ -230,26 +230,26 @@ class WorkIdFetcher:
         isbookmarked: bool = False,
     ) -> bool:
         task_list = []
-        async with self.semaphore:
-            for id in ids:
-                if not self.__event.is_set():
-                    return False
-                if await self.mongoDb_hander.is_exist(
-                    key="id", value=int(id), collection=collection
-                ):
-                    continue
-                _recorder = self.info_recorder.record_work_info(
-                    work_id=id, work_type=work_type, isbookmarked=isbookmarked
-                )
-                task = create_task(_recorder)
-                task_list.append(task)
 
-                """await self.info_recorder.record_work_info(
-                    work_id=id,
-                    work_type=work_type,
-                )"""
-            await gather(*task_list)
-            return True
+        for id in ids:
+            if not self.__event.is_set():
+                return False
+            if await self.mongoDb_hander.is_exist(
+                key="id", value=int(id), collection=collection
+            ):
+                continue
+            _recorder = self.info_recorder.record_work_info(
+                work_id=id, work_type=work_type, isbookmarked=isbookmarked
+            )
+            task = create_task(_recorder)
+            task_list.append(task)
+
+            """await self.info_recorder.record_work_info(
+                work_id=id,
+                work_type=work_type,
+            )"""
+        await gather(*task_list)
+        return True
 
     def stop(self) -> None:
         self.__event.clear()

@@ -1,1 +1,0 @@
-from downloader.analyzer import Analyzer
