@@ -1,16 +1,14 @@
-from logging import Logger
 from motor.motor_asyncio import (
     AsyncIOMotorClient,
     AsyncIOMotorCollection,
     AsyncIOMotorCursor,
 )
-from asyncio import AbstractEventLoop
 
 
-class MongoDBHander:
-    def __init__(self, logger: Logger, loop: AbstractEventLoop):
+class MongoDBHandler:
+    def __init__(self, logger):
         logger.info("Initialize Database......")
-        client = AsyncIOMotorClient("localhost", 27017, io_loop=loop)
+        client = AsyncIOMotorClient("localhost", 27017)
         self.db = client["pixiv"]
         self.backup_collection = client["backup"]["backup of pixiv infos"]
         self.followings_collection = self.db["All Followings"]
@@ -28,7 +26,7 @@ class MongoDBHander:
 
     async def insert_one(self, document, collection: str, backup: bool = False) -> bool:
         result = await self._get_collection(collection).insert_one(document=document)
-        if not result:
+        if result.inserted_id is None:
             return False
         if backup:
             result = await self._get_collection("backup").insert_one(document=document)
@@ -36,7 +34,7 @@ class MongoDBHander:
                 return False
         return True
 
-    def find(self, key: str, value, collection: str) -> AsyncIOMotorCursor:
+    async def find(self, key: str, value, collection: str) -> AsyncIOMotorCursor:
         return self._get_collection(collection).find({key: value}, {"_id": 0})
 
     def find_one(self, key: str, value, collection: str, excludes: list[str] = []):
@@ -45,9 +43,9 @@ class MongoDBHander:
             exclude_fields[exclude] = 0
         return self._get_collection(collection).find_one({key: value}, exclude_fields)
 
-    def find_exist(self, key: str, collection: str) -> AsyncIOMotorCursor:
+    async def find_exist(self, key: str, collection: str) -> AsyncIOMotorCursor:
         return self._get_collection(collection).find(
-            {key: {"$exists": "true"}}, {"_id": 0}
+            {key: {"$exists": True}}, {"_id": 0}
         )
 
     def set_one(self, key: str, value, setter: dict, collection: str):
@@ -73,33 +71,6 @@ class MongoDBHander:
             doc.update({"username": new_name})
             await collection_2.insert_one(doc)
         await collection_1.drop()
-
-    async def mongoDB_auto_backup(self) -> bool:
-        # Dont need
-        return True
-        self.logger.info("开始自动备份,请勿关闭程序!!!")
-        names = await self.db.list_collection_names()
-        for name in names:
-            collection = self.db[name]
-            # 可不用
-            async with self.semaphore:
-                async for docs in collection.find(
-                    {"id": {"$exists": True}}, {"_id": 0}
-                ):
-                    if not self.__event.is_set():
-                        self.logger.info("停止自动备份!")
-                        return False
-                    if len(docs) >= 9:
-                        b = await self.backup_collection.find_one(
-                            {"id": docs.get("id")}
-                        )
-                        if b:
-                            continue
-                        else:
-                            await self.backup_collection.insert_one(docs)
-                            # print(c)
-        self.logger.info("自动备份完成!")
-        return True
 
     async def record_error(self) -> bool:
         # TODO

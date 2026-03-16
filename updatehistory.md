@@ -1,4 +1,12 @@
 ## updates:
+- 3.0.0
+  完成基础框架
+  - 修改项目结构, 重写代码
+    - 新增spiders, engine, downloader, middleware, pipeline系统
+    - 新增data存放数据结构, storage进行数据持久化储存
+    - 迁移config_handler, mongoDB_handler
+    - 重写clientpool,
+    - 弃用MyLogger,
 - 2.2.0
   - 统一的网络请求处理
     [] 自定义重试策略
