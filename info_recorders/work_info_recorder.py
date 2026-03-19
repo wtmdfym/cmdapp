@@ -470,7 +470,7 @@ class WorkInfoRecorder:
             )
             if len(newest_works) > 4:
                 newest_works.pop(4)
-            assert self.mongoDb_hander.set_one(
+            assert await self.mongoDb_hander.set_one(
                 key="userName",
                 value=user_name,
                 setter={"newestWorks": newest_works},

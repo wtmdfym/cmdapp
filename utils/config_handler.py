@@ -2,7 +2,8 @@ import json
 import os
 from typing import Any
 
-DEFAULT_CONFIG = """{
+DEFAULT_CONFIG = """
+{
     "clientpool_config": {
         "proxy": {
             "enable": true,
@@ -11,30 +12,31 @@ DEFAULT_CONFIG = """{
         "max_connections": 3,
         "request_interval": 2,
         "primary_account": {
+            "id": 0,
             "email": "",
-            "cookies": {"PHPSESSID": ""},
+            "cookies": {"PHPSESSID": ""}
         },
-        "client_pool": [],
+        "client_pool": []
     },
     "logger_config": {
         "version": 1,
-        "disable_existing_loggers": False,
+        "disable_existing_loggers": false,
         "formatters": {
             "standard": {
                 "format": "%(asctime)s [%(levelname)s] - %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
+                "datefmt": "%Y-%m-%d %H:%M:%S"
             },
             "detailed": {
                 "format": "%(asctime)s [%(levelname)s] - %(name)s - %(pathname)s:%(lineno)d - [%(funcName)s] - %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S",
-            },
+                "datefmt": "%Y-%m-%d %H:%M:%S"
+            }
         },
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
                 "level": "INFO",
                 "formatter": "standard",
-                "stream": "ext://sys.stdout",
+                "stream": "ext://sys.stdout"
             },
             "file": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -43,29 +45,30 @@ DEFAULT_CONFIG = """{
                 "filename": "crawler.log",
                 "maxBytes": 1048576,
                 "backupCount": 5,
-                "encoding": "utf8",
-            },
+                "encoding": "utf8"
+            }
         },
         "loggers": {
             "crawler": {
                 "level": "DEBUG",
                 "handlers": ["console", "file"],
-                "propagate": "no",
+                "propagate": "no"
             },
             "httpx": {
                 "level": "INFO",
                 "handlers": ["console", "file"],
-                "propagate": "no",
+                "propagate": "no"
             },
             "httpcore": {
                 "level": "INFO",
                 "handlers": ["console", "file"],
-                "propagate": "no",
-            },
+                "propagate": "no"
+            }
         },
-        "root": {"level": "WARNING", "handlers": []},
-    },
-}"""
+        "root": {"level": "WARNING", "handlers": []}
+    }
+}
+"""
 
 
 class ConfigHandler:

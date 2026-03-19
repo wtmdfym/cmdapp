@@ -5,6 +5,8 @@ from .models import (
     EngineStatus,
     Request,
     Response,
+    ParseError,
+    Item,
 )
 
 __all__ = [

@@ -46,27 +46,10 @@ class Downloader:
     def submit(
         self,
         request: Request,
-        future: asyncio.Future,
-    ) -> asyncio.Task:
-        """
-        Submit a request for asynchronous download execution.
+    ) -> asyncio._CoroutineLike:
+        return self._worker(request)
 
-        Creates and returns an `asyncio.Task` that executes the request through
-        the `_worker` coroutine. The task runs independently and resolves the
-        provided future upon completion or failure.
-
-        Args:
-            request: The Request object containing HTTP method, URL, headers, etc.
-            future: The asyncio.Future to be resolved with the Response result.
-                    This allows the caller to await the result separately.
-
-        Returns:
-            An asyncio.Task representing the running worker coroutine.
-        """
-
-        return asyncio.create_task(self._worker(request, future))
-
-    async def _worker(self, request: Request, future: asyncio.Future):
+    async def _worker(self, request: Request) -> Response | None:
         """
         Worker coroutine that executes a single HTTP request.
 
@@ -75,6 +58,9 @@ class Downloader:
         - Acquiring semaphore slot for concurrency control
         - Executing the HTTP request via client_pool
         - Constructing and returning the Response object
+
+        future will set a result `Response` if request successful, otherwise
+        set the failed `Request`
 
         Args:
             request: The Request object with all HTTP parameters.
@@ -99,6 +85,10 @@ class Downloader:
                     use_primary=request.use_primary,
                 )
 
+                if resp is None:
+                    # future.set_result(request)
+                    return
+
                 response = Response(
                     request=request,
                     status=resp.status_code,
@@ -109,11 +99,13 @@ class Downloader:
                 )
 
                 # Resolve the future with successful response
-                future.set_result(response)
+                # future.set_result(response)
+                return response
 
             except RuntimeError as e:
                 # Re-raise RuntimeError for upstream error handling
-                future.set_exception(e)
+                # future.set_exception(e)
+                raise e
 
     def pause(self):
         """

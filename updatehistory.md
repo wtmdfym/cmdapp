@@ -1,4 +1,25 @@
 ## updates:
+- 3.0.1
+  修复bug及优化，旧代码迁移
+  - 修复
+    - request_interval未正常工作
+    - engine.run()忙轮询占用loop导致其余task无法运行
+    - MongoDBHandler部分函数逻辑
+    - engine auto pause功能逻辑
+    - 实现背压机制：
+      - 移除engine._request，请求统一由scheduler管理
+      - 限制engine._tasks长度
+  - 优化
+    - Request.fingerpoint改用MD5算法并增加缓存
+    - 更改部分日志输出的级别，fingerpoint日志输出转为hex
+    - 修改部分变量名
+    - 移除downloader相关操作中不必要的future，直接返回Awaitable
+    - MongoDBHandler增加配置功能、错误记录；增加 close() 关闭客户端
+    - 完善pipelines，engine初始化，spider注册，manager统一管理
+    - 添加Item类和schema校验，规范spider返回值
+  - 迁移followings_recoder->followings_info_spider
+    - 修改数据库结构，在当前数据规模下得到更好的性能
+  - 添加DataService，允许spider对本地数据进行只读访问
 - 3.0.0
   完成基础框架
   - 修改项目结构, 重写代码

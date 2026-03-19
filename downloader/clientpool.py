@@ -59,7 +59,7 @@ class ClientPool:
         """
         self.config = config_handler
         self.logger = logger
-        self.request_interval = config_handler.require(
+        self.request_interval: float = config_handler.require(
             "clientpool_config.request_interval"
         )
 
@@ -80,6 +80,7 @@ class ClientPool:
         self._accounts: list[PixivAccount] = []
 
         self._lock = asyncio.Lock()
+        self._acc_lock = asyncio.Lock()
         self._shutdown_event = asyncio.Event()
 
         self._initialized = False
@@ -170,10 +171,17 @@ class ClientPool:
         Returns:
             True if the account returns HTTP 200, False otherwise.
         """
-        resp = await client.get("https://www.pixiv.net/settings/account")
+        try:
+            resp = await client.get("https://www.pixiv.net/settings/account")
+        except httpx.HTTPError as e:
+            if isinstance(e, httpx.ConnectError):
+                self.logger.warning("Proxy error. Please check your proxy!")
+            else:
+                self.logger.exception(e)
+            return False
         return resp.status_code == 200
 
-    async def _get_account(self, use_primary: bool) -> PixivAccount:
+    async def _get_account(self, use_primary: bool) -> tuple[PixivAccount, float]:
         """
         Select an available account for making a request.
 
@@ -195,53 +203,54 @@ class ClientPool:
             RuntimeError: If ClientPool is not initialized, or if primary
                         account is unavailable or unhealthy.
         """
+        async with self._acc_lock:
 
-        if not self._initialized:
-            raise RuntimeError("ClientPool not initialized")
+            if not self._initialized:
+                raise RuntimeError("ClientPool not initialized")
 
-        now = time()
+            now = time()
 
-        if use_primary:
-            if not self._primary:
-                raise RuntimeError("Primary account not configured")
-            if self._primary.status != AccountStatus.HEALTHY:
-                raise RuntimeError("Primary account unuseable")
-            account = self._primary
-        else:
-            healthy = []
-            for acc in self._accounts:
-                if acc.status == AccountStatus.HEALTHY:
-                    healthy.append(acc)
-                elif acc.status == AccountStatus.RATE_LIMITED:
-                    # Resume rate limited account
-                    if now > acc.cooldown_until:
-                        acc.status = AccountStatus.HEALTHY
+            if use_primary:
+                if not self._primary:
+                    raise RuntimeError("Primary account not configured")
+                if self._primary.status != AccountStatus.HEALTHY:
+                    raise RuntimeError("Primary account unuseable")
+                account = self._primary
+            else:
+                healthy: list[PixivAccount] = []
+                for acc in self._accounts:
+                    if acc.status == AccountStatus.HEALTHY:
                         healthy.append(acc)
+                    elif acc.status == AccountStatus.RATE_LIMITED:
+                        # Resume rate limited account
+                        if now > acc.wait_until:
+                            acc.status = AccountStatus.HEALTHY
+                            healthy.append(acc)
 
-            if len(healthy) == 0:
-                self.logger.warning(
-                    "No healthy pool accounts, use primary account instead!"
-                )
-                account = await self._get_account(use_primary=True)
-                # raise RuntimeError("No healthy pool accounts")
+                if len(healthy) == 0:
+                    self.logger.warning(
+                        "No healthy pool accounts, use primary account instead!"
+                    )
+                    account, _ = await self._get_account(use_primary=True)
+                    # raise RuntimeError("No healthy pool accounts")
 
-            account = min(healthy, key=lambda a: a.last_request_time)
+                else:
+                    account = min(healthy, key=lambda a: a.last_request_time)
 
-        # Waiting for the necessary time to avoid Pixiv rate limit
-        delta = now - account.last_request_time
-        if delta < self.request_interval:
-            await asyncio.sleep(self.request_interval - delta)
-        account.last_request_time = now
+            # Waiting for the necessary time to avoid Pixiv rate limit
+            wait = max(0, self.request_interval - (now - account.last_request_time))
+            account.last_request_time = now + wait
 
-        return account
+            return account, wait
 
     async def request(
         self,
         method: str,
         url: str,
         use_primary: bool = False,
+        retries=3,
         **kwargs,
-    ) -> httpx.Response:
+    ) -> Optional[httpx.Response]:
         """
         Make an HTTP request using an available account from the pool.
 
@@ -257,7 +266,8 @@ class ClientPool:
             **kwargs: Additional arguments passed to httpx.AsyncClient.request().
 
         Returns:
-            The httpx.Response object from the successful request.
+            Optional[httpx.Response]: The httpx.Response object from the
+            successful request, or None if any error raised.
 
         Raises:
             RuntimeError: If the ClientPool is closed or shutting down.
@@ -267,7 +277,15 @@ class ClientPool:
             raise RuntimeError("ClientPool already closed")
 
         while not self._shutdown_event.is_set():
-            account = await self._get_account(use_primary)
+            if retries == 0:
+                return
+
+            account, wait = await self._get_account(use_primary)
+            if wait > 0:
+                # Sleep during the request step to avoid
+                # get_account being suspended due to acc_lock.
+                await asyncio.sleep(wait)
+
             try:
                 response = await account.client.request(
                     method, url, **kwargs, cookies=account.cookies
@@ -290,22 +308,14 @@ class ClientPool:
                         the request_interval in config file or add a new account!"""
                         % account.email
                     )
-
-                    # Auto-adjust request interval to prevent further rate limiting
-                    self.request_interval += 1
-                    self.config.update(
-                        "clientpool_config.request_interval", self.request_interval
-                    )
-                    self.logger.info(
-                        "The configuration request_interval has been automatically increased."
-                    )
-
+                    await self.update_request_interval(1)
                     cooldown = random.randint(80, 180)
-                    account.cooldown_until = time() + cooldown
+                    account.wait_until = time() + cooldown
 
                 return response
 
             except httpx.HTTPError as e:
+                retries -= 1
                 account.fail_count += 1
                 if account.fail_count >= 5:
                     account.status = AccountStatus.INVALID
@@ -317,9 +327,18 @@ class ClientPool:
                         "Connection timed out, please check your network connection!"
                     )
 
-                await asyncio.sleep(self.request_interval)
-
         raise RuntimeError("ClientPool shutting down")
+
+    async def update_request_interval(self, add_interval: float):
+        # Auto-adjust request interval to prevent further rate limiting
+        async with self._lock:
+            self.request_interval += add_interval
+            self.config.update(
+                "clientpool_config.request_interval", self.request_interval
+            )
+            self.logger.info(
+                "The configuration request_interval has been automatically increased."
+            )
 
     async def shutdown(self):
         """

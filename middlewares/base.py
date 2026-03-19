@@ -18,5 +18,5 @@ class BaseMiddleware:
         self,
         request: Request,
         e: Exception,
-    ) -> Request | Response | None:
+    ) -> Request | None:
         return request

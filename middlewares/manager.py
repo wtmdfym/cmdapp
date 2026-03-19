@@ -16,7 +16,7 @@ class MiddlewareManager:
             )
         )
 
-    def process_request(self, result: Request | None) -> Request | None:
+    def process_request(self, result: Request) -> Request | None:
         for m in self.middlewares:
             if result is not None:
                 result = m.process_request(result)  # type: ignore

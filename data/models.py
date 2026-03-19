@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace, field
-from typing import Callable, Any
-from hashlib import sha1
+from typing import Callable, Any, Iterator, Awaitable
+from hashlib import md5
 from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 from httpx import AsyncClient
 from enum import Enum
@@ -10,6 +10,7 @@ class AccountStatus(Enum):
     HEALTHY = "healthy"
     INVALID = "invalid"
     RATE_LIMITED = "rate_limited"
+    # USING = "using"
 
 
 class EngineStatus(Enum):
@@ -18,11 +19,24 @@ class EngineStatus(Enum):
     PAUSE = "pause"
 
 
+@dataclass(slots=True)
+class Item:
+    type: str  # 数据类型（核心）
+    data: dict[str, Any]  # 业务数据
+    # meta: dict[str, Any] = field(default_factory=dict)  # 可选扩展
+
+
 @dataclass
 class SpiderResult:
+    """
+    item_example:
+    {"name": "The name of pipeline",
+    "data": "Any data the target pipeline can process"}
+    """
+
     requests: list[Request] = field(default_factory=list)
-    db_data: dict[str, Any] | None = None
-    raw_data: str = ""
+    # TODO requests: Iterator[Request] = field(default_factory=Iterator)
+    items: list[Item] = field(default_factory=list)
 
 
 @dataclass
@@ -31,12 +45,12 @@ class PixivAccount:
     cookies: dict
     client: AsyncClient
     last_request_time: float
-    cooldown_until: float = 0
+    wait_until: float = 0
     status: AccountStatus = AccountStatus.HEALTHY
     fail_count: int = 0
 
 
-Callback = Callable[["Response"], SpiderResult]
+Callback = Callable[["Response"], Awaitable[SpiderResult]]
 Errback = Callable[["Request", Exception], Any]
 
 
@@ -44,7 +58,7 @@ Errback = Callable[["Request", Exception], Any]
 class Request:
     method: str
     url: str
-    callback: Callback
+    spider_parser: Callback
 
     # HTTP
     params: dict | None = None
@@ -52,16 +66,19 @@ class Request:
     headers: dict | None = None
 
     # 调度相关
-    priority: int = 20  # 0-100
+    priority: int = 50  # 0-100
     use_primary: bool = False
 
     # 重试
     retry_times: int = 0
     max_retry: int = 3
+    _ignore: bool = False
 
     meta: dict = field(default_factory=dict)
 
     errback: Errback | None = None
+    # Cache fingerpoint
+    _fingerprint: bytes | None = None
 
     @property
     def fingerprint(self) -> bytes:
@@ -71,6 +88,9 @@ class Request:
          - Includes: Request method + Canonical URL + Request body data
          - Excludes: Scheduling-related fields, such as priority, use_primary, and retry_times
         """
+        if self._fingerprint:
+            return self._fingerprint
+
         # 规范化URL（排序query参数，去除fragment）
         parsed = urlparse(self.url)
 
@@ -109,13 +129,17 @@ class Request:
                 fp_parts.append(str(self.data))
 
         fp_str = "|".join(fp_parts)
-        return sha1(fp_str.encode("utf-8")).digest()
+        self._fingerprint = md5(fp_str.encode("utf-8")).digest()
+        return self._fingerprint
 
     def copy(self, **kwargs) -> "Request":
         return replace(self, **kwargs)
 
     def next_retry(self) -> "Request":
         return replace(self, retry_times=self.retry_times + 1)
+
+    def ignore(self):
+        self._ignore = True
 
 
 @dataclass(slots=True)
@@ -144,3 +168,8 @@ class Response:
     @property
     def is_auth_error(self) -> bool:
         return self.status in (401, 403)
+
+
+class ParseError(RuntimeError):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
