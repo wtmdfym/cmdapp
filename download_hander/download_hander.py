@@ -3,9 +3,13 @@ import os
 import re
 
 from download_hander.image_downloader import ImageDownloader
-from common import ClientPool, ConfigHander, MongoDBHander
 from logging import Logger
 from asyncio import Event, Semaphore, create_task, gather
+from typing import Any
+
+ClientPool = Any
+ConfigHander = Any
+MongoDBHander = Any
 
 
 class DownloadHander:

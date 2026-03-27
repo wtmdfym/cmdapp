@@ -1,8 +1,10 @@
-from .base import BasePipeline
+from data import DBItem
 from storage import MongoDBHandler
 
+from .base import BasePipeline
 
-class MongoDBPipeline(BasePipeline):
+
+class MongoDBPipeline(BasePipeline[DBItem]):
     """
     Data format:{
         "collection": "collection_name",
@@ -27,48 +29,38 @@ class MongoDBPipeline(BasePipeline):
         self.logger = logger
         self.mongo = mongo
 
-    async def _process_item(self, item: dict) -> bool:
+    async def _process_item(self, item: DBItem) -> bool:
 
-        item = item.copy()
-        try:
-            collection = item["collection"]
-            backup = item["backup"]
-            operation = item["op"]
-        except KeyError:
-            self.logger.warning("Invalid item format.")
-            return False
-
-        if operation == "insert":
-            self.logger.debug(f"MongoDB insert:\n\t{item["document"]}")
+        if item.op == "insert":
+            self.logger.debug(f"MongoDB insert:\n\t{item.document}")
             return await self.mongo.insert_one(
-                document=item["document"],
-                collection=collection,
-                backup=backup,
+                document=item.document,  # type: ignore
+                collection=item.collection,
+                backup=item.backup,
             )
 
-        elif operation == "update":
+        if item.op == "update":
             self.logger.debug(
                 f"""MongoDB update:\t
-                filter --- {item["filter"]}\t
-                update --- {item["update"]}"""
+                filter --- {item.update_filter}\t
+                update --- {item.update}"""
             )
             return (
                 await self.mongo.update_one(
-                    collection=collection,
-                    filter=item["filter"],
-                    update=item["update"],
+                    collection=item.collection,
+                    filter=item.update_filter,  # type: ignore
+                    update=item.update,  # type: ignore
                 )
                 > 0
             )
 
-        elif operation == "rename":
+        if item.op == "rename":
             self.logger.debug(
-                f"MongoDB rename:\n\t{collection} ---> {item["new_name"]}"
+                f"MongoDB rename:\n\t{item.collection} ---> {item.new_name}"
             )
             return await self.mongo.rename_user_collection(
-                collection=collection,
-                new_name=item["new_name"],
+                collection=item.collection,
+                new_name=item.new_name,  # type: ignore
             )
 
-        else:
-            raise ValueError(f"Invalid operation: {operation}")
+        return False

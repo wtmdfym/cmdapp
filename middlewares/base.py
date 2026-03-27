@@ -4,8 +4,8 @@ from data import Request, Response
 class BaseMiddleware:
     priority = 500  # 0 - 1000
 
-    def __init__(self) -> None:
-        pass
+    def __init__(self, logger) -> None:
+        self.logger = logger
 
     def process_request(self, request: Request) -> Request | None:
         # Only allow change request fileds

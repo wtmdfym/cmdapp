@@ -7,13 +7,12 @@ class MiddlewareManager:
         self.logger = logger
         self.middlewares: list[BaseMiddleware] = []
 
-    def set_middlewares(self, middlewares: list[BaseMiddleware]):
+    def set_middlewares(self, middlewares: list[type[BaseMiddleware]]):
         self.middlewares.clear()
-        self.middlewares.extend(
-            sorted(
-                middlewares,
-                key=lambda m: getattr(m, "priority", 500),
-            )
+        for Middleware in middlewares:
+            self.middlewares.append(Middleware(self.logger))
+        self.middlewares.sort(
+            key=lambda m: getattr(m, "priority", 500),
         )
 
     def process_request(self, result: Request) -> Request | None:

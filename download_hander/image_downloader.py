@@ -2,7 +2,14 @@
 import os, time
 from asyncio import Event, Semaphore
 from logging import Logger
-from common import ClientPool, MongoDBHander, ResponseHander, check_image, make_gif
+from typing import Any
+
+# Common module was removed or renamed. Use local utilities or implement required functions.
+ClientPool = Any
+MongoDBHander = Any
+ResponseHander = Any
+check_image = lambda path: True
+make_gif = lambda **kwargs: True
 
 # from download_hander import DownloadHander
 

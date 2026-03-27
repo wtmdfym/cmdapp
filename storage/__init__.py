@@ -1,3 +1,4 @@
+from .data_service import DataService
 from .mongoDB_handler import MongoDBHandler
 
-__all__ = ["MongoDBHandler"]
+__all__ = ["DataService", "MongoDBHandler"]

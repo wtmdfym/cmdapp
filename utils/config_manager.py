@@ -4,6 +4,8 @@ from typing import Any
 
 DEFAULT_CONFIG = """
 {
+    "spider_config": {
+    },
     "clientpool_config": {
         "proxy": {
             "enable": true,
@@ -23,6 +25,7 @@ DEFAULT_CONFIG = """
         "disable_existing_loggers": false,
         "formatters": {
             "standard": {
+                "()": "utils.ColoredFormatter",
                 "format": "%(asctime)s [%(levelname)s] - %(message)s",
                 "datefmt": "%Y-%m-%d %H:%M:%S"
             },
@@ -42,7 +45,7 @@ DEFAULT_CONFIG = """
                 "class": "logging.handlers.RotatingFileHandler",
                 "level": "DEBUG",
                 "formatter": "detailed",
-                "filename": "crawler.log",
+                "filename": "logs/crawler.log",
                 "maxBytes": 1048576,
                 "backupCount": 5,
                 "encoding": "utf8"
@@ -71,7 +74,7 @@ DEFAULT_CONFIG = """
 """
 
 
-class ConfigHandler:
+class ConfigManager:
     def __init__(self, config_file_path: str) -> None:
         self.path = config_file_path
         if os.path.exists(config_file_path):

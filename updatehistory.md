@@ -1,4 +1,36 @@
 ## updates:
+- 3.0.2
+  完成旧代码迁移，删除残留组件
+  - 修复
+    - scheduler和task互锁导致queue满时程序卡死
+    - engine自动暂停的逻辑错误
+    - request优先级错误导致同时存在大量request
+  - 删除
+    - 删除 GUIcmd/ 目录（旧GUI实现）
+    - 删除 common/ 目录（旧共享代码）
+    - 删除 info_recorders/ 目录（废弃的信息记录组件）
+    - 删除 gui_for_cmdapp.py
+    - 删除 utils/logger.py（由 logger_enhanced.py 替代）
+  - 迁移
+    - followings_info_spider.py → spiders/pixiv/following_info_spider.py
+    - config_handler.py → config_manager.py
+    - DataService 从 utils/ 迁移到 storage/
+  - 新增
+    - data/items.py：Item类定义和schema校验
+    - engine/worker_pool.py：worker池管理
+    - spiders/pixiv/bookmark_work_spider.py：书签爬虫
+    - spiders/pixiv/followings_work_spider.py：关注用户作品爬虫
+    - spiders/pixiv/tools.py：spider辅助工具
+    - spiders/pixiv_spiders.py：spider统一管理
+    - storage/data_service.py：数据服务层
+    - utils/logger_enhanced.py：增强日志系统
+    - main.py：命令行入口实现
+  - 改进
+    - 优化 engine/engine.py 和 engine/scheduler.py
+    - 更新 middlewares 和 pipelines 管理
+    - 使用worker_pool限制task数量
+    - 保证高优先级request优先完成整个生命周期（以前只是优先网络请求）
+    - 完善 readme.md 文档
 - 3.0.1
   修复bug及优化，旧代码迁移
   - 修复

@@ -16,7 +16,7 @@ class MongoDBHandler:
         db_name: str = "test",
         options: Mapping[str, Any] | None = None,
     ):
-        logger.info("Initializing Database......")
+        logger.info("Initializing Database...")
         self.client = AsyncIOMotorClient(uri, **(options or {}))
         self.db = self.client[db_name]
         """
@@ -71,8 +71,8 @@ class MongoDBHandler:
         key: str,
         value: Any,
         collection: str,
-        includes: list[str] = [],
-        excludes: list[str] = [],
+        includes: set[str] = set(),
+        excludes: set[str] = set(),
     ) -> dict | None:
         projection: dict[str, int] = {"_id": 0}
 
@@ -90,8 +90,8 @@ class MongoDBHandler:
         self,
         key: str,
         collection: str,
-        includes: list[str] = [],
-        excludes: list[str] = [],
+        includes: set[str] = set(),
+        excludes: set[str] = set(),
     ) -> AsyncIOMotorCursor:
         projection: dict[str, int] = {"_id": 0}
 

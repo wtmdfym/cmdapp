@@ -1,18 +1,7 @@
 from typing import Iterable
-from .base import BasePipeline
-from data import Item
+from data import BaseItem
 from collections import defaultdict
-
-SCHEMAS = {
-    "print": {
-        "required": [],
-        "optional": [],
-    },
-    "db": {
-        "required": ["collection", "backup", "op"],
-        "optional": ["document", "filter", "update", "new_name"],
-    },
-}
+from .base import BasePipeline
 
 
 class PipelineManager:
@@ -37,23 +26,15 @@ class PipelineManager:
 
             self.register(item_type, pipeline)
 
-    def validate_item(self, item: Item):
-        schemas = SCHEMAS[item.type]
-        for field in schemas["required"]:
-            if field not in item.data:
-                raise ValueError(f"Missing field: {field}")
-
-    async def process(self, items: Iterable[Item]):
+    async def process(self, items: Iterable[BaseItem]):
         for item in items:
             pipelines = self._routes.get(item.type)
 
             if not pipelines:
                 raise ValueError(f"No pipeline for item type: {item.type}")
 
-            self.validate_item(item)
-
             for pipeline in pipelines:
-                await pipeline.process_item(item.data)
+                await pipeline.process_item(item)
 
     def get_pipeline(self, name: str) -> BasePipeline | None:
         for pipeline in self.pipelines:

@@ -5,6 +5,8 @@ from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 from httpx import AsyncClient
 from enum import Enum
 
+from .items import BaseItem
+
 
 class AccountStatus(Enum):
     HEALTHY = "healthy"
@@ -13,17 +15,23 @@ class AccountStatus(Enum):
     # USING = "using"
 
 
+class SpiderStatus(Enum):
+    WAIT = "wait"
+    RUNNING = "running"
+    FINISH = "finish"
+
+
 class EngineStatus(Enum):
     STOP = "stop"
     RUNNING = "running"
     PAUSE = "pause"
 
 
-@dataclass(slots=True)
-class Item:
-    type: str  # 数据类型（核心）
-    data: dict[str, Any]  # 业务数据
-    # meta: dict[str, Any] = field(default_factory=dict)  # 可选扩展
+# @dataclass(slots=True)
+# class Item:
+#     type: str  # 数据类型（核心）
+#     data: dict[str, Any]  # 业务数据
+# meta: dict[str, Any] = field(default_factory=dict)  # 可选扩展
 
 
 @dataclass
@@ -36,7 +44,7 @@ class SpiderResult:
 
     requests: list[Request] = field(default_factory=list)
     # TODO requests: Iterator[Request] = field(default_factory=Iterator)
-    items: list[Item] = field(default_factory=list)
+    items: list[BaseItem] = field(default_factory=list)
 
 
 @dataclass
@@ -72,7 +80,7 @@ class Request:
     # 重试
     retry_times: int = 0
     max_retry: int = 3
-    _ignore: bool = False
+    ignore: bool = False
 
     meta: dict = field(default_factory=dict)
 
@@ -137,9 +145,6 @@ class Request:
 
     def next_retry(self) -> "Request":
         return replace(self, retry_times=self.retry_times + 1)
-
-    def ignore(self):
-        self._ignore = True
 
 
 @dataclass(slots=True)

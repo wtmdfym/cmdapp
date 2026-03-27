@@ -267,7 +267,7 @@ class ClientPool:
 
         Returns:
             Optional[httpx.Response]: The httpx.Response object from the
-            successful request, or None if any error raised.
+            successful request, or None if retry failed after retries.
 
         Raises:
             RuntimeError: If the ClientPool is closed or shutting down.
@@ -278,12 +278,13 @@ class ClientPool:
 
         while not self._shutdown_event.is_set():
             if retries == 0:
-                return
+                return None
 
             account, wait = await self._get_account(use_primary)
             if wait > 0:
                 # Sleep during the request step to avoid
                 # get_account being suspended due to acc_lock.
+                self.logger.debug(f"Auto sleep {wait}s, url: {url}")
                 await asyncio.sleep(wait)
 
             try:

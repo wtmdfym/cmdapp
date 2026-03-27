@@ -1,13 +1,14 @@
-from .base_spider import BaseSpider
-from data import Request, Response, SpiderResult, ParseError, Item
-from utils import ConfigHandler, DataService
+from ..base_spider import BaseSpider
+from data import Request, Response, SpiderResult, ParseError, DBItem
+from utils import ConfigManager
+from storage import DataService
 
 
 class FollowingInfoSpider(BaseSpider):
     name = "followinginfo"
     registry = {"db": "mongodb"}
 
-    def __init__(self, logger, config: ConfigHandler, dataservice: DataService):
+    def __init__(self, logger, config: ConfigManager, dataservice: DataService):
         super().__init__(logger)
         self.myId = config.require("clientpool_config.primary_account.id")
         self.dataservice = dataservice
@@ -20,7 +21,7 @@ class FollowingInfoSpider(BaseSpider):
                     "referer": f"https://www.pixiv.net/users/{self.myId}/following?p=1"
                 },
                 use_primary=True,
-                priority=10,
+                priority=50,
             )
         ]
 
@@ -40,7 +41,8 @@ class FollowingInfoSpider(BaseSpider):
         # self.logger.debug(following)
 
         following_url = f"https://www.pixiv.net/ajax/user/{self.myId}/following"
-        all_page = (following + 23) // 24
+        limit = 24
+        all_page = (following + limit - 1) // limit
         if all_page <= 0:
             return SpiderResult()
 
@@ -52,18 +54,19 @@ class FollowingInfoSpider(BaseSpider):
                     self._parse_followings_id,
                     params={
                         "offset": 0,
-                        "limit": 24,
+                        "limit": limit,
                         "rest": "show",
                         "tag": None,
                         "acceptingRequests": 0,
                         "lang": "zh",
                     },
                     use_primary=True,
-                    priority=21,
+                    priority=40,
                     meta={
+                        "limit": limit,
                         "page": 0,
                         "all_page": all_page,
-                        "following_user_ids": [],
+                        "following_user_ids": set(),
                     },
                 )
             ]
@@ -84,13 +87,14 @@ class FollowingInfoSpider(BaseSpider):
             self.logger.exception(e)
             return spider_result
 
-        request_meta = response.request.meta or {}
-        page = request_meta.get("page", 0)
-        all_page = request_meta.get("all_page", 1)
-        user_id_set = set(request_meta.get("following_user_ids", []))
+        meta = response.request.meta
+        limit = meta["limit"]
+        page = meta.get("page", 0)
+        all_page = meta.get("all_page", 1)
+        user_id_set = meta["following_user_ids"]
 
         self.logger.info(
-            f"Updating following user info...... page={page + 1}/{all_page}"
+            f"Updating following user info---page={page + 1}/{all_page}... "
         )
 
         for user in users:
@@ -111,19 +115,19 @@ class FollowingInfoSpider(BaseSpider):
                     f"https://www.pixiv.net/ajax/user/{self.myId}/following",
                     self._parse_followings_id,
                     params={
-                        "offset": next_page * 24,
-                        "limit": 24,
+                        "offset": next_page * limit,
+                        "limit": limit,
                         "rest": "show",
                         "tag": None,
                         "acceptingRequests": 0,
                         "lang": "zh",
                     },
                     use_primary=True,
-                    priority=21,
+                    priority=35,
                     meta={
                         "page": next_page,
                         "all_page": all_page,
-                        "following_user_ids": list(user_id_set),
+                        "following_user_ids": user_id_set,
                     },
                 )
             )
@@ -139,16 +143,13 @@ class FollowingInfoSpider(BaseSpider):
 
             self.logger.warning(f"Not following now: {following}")
             spider_result.items.append(
-                Item(
-                    type="db",
-                    data={
-                        "collection": "followings",
-                        "backup": False,
-                        "op": "update",
-                        "filter": {"userId": following["userId"]},
-                        "update": {
-                            "$set": {"not_following_now": True},
-                        },
+                DBItem(
+                    collection="followings",
+                    backup=False,
+                    op="update",
+                    update_filter={"userId": following["userId"]},
+                    update={
+                        "$set": {"not_following_now": True},
                     },
                 )
             )
@@ -168,18 +169,15 @@ class FollowingInfoSpider(BaseSpider):
         earlier = await self.dataservice.user_info(user_id)
         if earlier is None:
             self.logger.info(f"Recording: UID:{user_id}    Name:{userName}")
-            yield Item(
-                type="db",
-                data={
-                    "collection": "followings",
-                    "backup": False,
-                    "op": "insert",
-                    "document": {
-                        "userId": user_id,
-                        "userName": userName,
-                        "userComment": userComment,
-                        "profileImageUrl": profileImageUrl,
-                    },
+            yield DBItem(
+                collection="followings",
+                backup=False,
+                op="insert",
+                document={
+                    "userId": user_id,
+                    "userName": userName,
+                    "userComment": userComment,
+                    "profileImageUrl": profileImageUrl,
                 },
             )
             return
@@ -191,14 +189,11 @@ class FollowingInfoSpider(BaseSpider):
         earlier_userName = earlier["userName"]
 
         if earlier_userName != userName:
-            yield Item(
-                type="db",
-                data={
-                    "collection": earlier_userName,
-                    "backup": False,
-                    "op": "rename",
-                    "new_name": userName,
-                },
+            yield DBItem(
+                collection="followings",
+                backup=False,
+                op="rename",
+                new_name=userName,
             )
             setter["userName"] = userName
 
@@ -216,16 +211,13 @@ class FollowingInfoSpider(BaseSpider):
             self.logger.debug(
                 f"Updating user info: set --- {setter}|unset --- {unsetter}."
             )
-            yield Item(
-                type="db",
-                data={
-                    "collection": "followings",
-                    "backup": False,
-                    "op": "update",
-                    "filter": {"userId": user_id},
-                    "update": {
-                        "$set": setter,
-                        "$unset": unsetter,
-                    },
+            yield DBItem(
+                collection="followings",
+                backup=False,
+                op="update",
+                update_filter={"userId": user_id},
+                update={
+                    "$set": setter,
+                    "$unset": unsetter,
                 },
             )

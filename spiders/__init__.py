@@ -1,6 +1,7 @@
-from .base_spider import BaseSpider
-from .followings_info_spider import FollowingInfoSpider
+from .base_spider import BaseSpider, SpiderCollection
+from .pixiv_spiders import PixivSpiders
 
 __all__ = [
     "BaseSpider",
+    "SpiderCollection"
 ]

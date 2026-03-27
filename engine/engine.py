@@ -1,28 +1,29 @@
 import sys
 from pathlib import Path
 import asyncio
-import logging.config
+import logging
 from time import time
-from typing import Awaitable
 
 # Add project root path to Python PATH
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from data import Request, Response, EngineStatus, ParseError
+from data import EngineStatus, SpiderStatus
 from utils import *
 from spiders import *
-from .scheduler import Scheduler
 from downloader import *
 from middlewares import *
 from pipelines import *
-from storage import MongoDBHandler
+from storage import *
+
+from .scheduler import Scheduler
+from .worker_pool import WorkerPool
 
 
 class Engine:
-    def __init__(self) -> None:
-        self.config = ConfigHandler(config_file_path="config.json")
-        logging.config.dictConfig(self.config.require("logger_config"))
+    def __init__(self, config: ConfigManager) -> None:
+        self.config = config
+        self.status = EngineStatus.STOP
 
         # Init all basic compents
         self.logger = logging.getLogger("crawler")
@@ -35,28 +36,39 @@ class Engine:
         self.middleware = MiddlewareManager(self.logger)
         self.pipeline_manager = PipelineManager(self.logger)
 
-        self.mongo = MongoDBHandler(self.logger, db_name="test")
-        self.pipeline_manager.add_pipeline(BasePipeline())
-        self.pipeline_manager.add_pipeline(MongoDBPipeline(self.logger, self.mongo))
+        self._spider_collections: list[SpiderCollection] = []
 
-        self.dataservice = DataService(self.mongo)
-
-        self.status = EngineStatus.STOP
-        self._spiders: list[BaseSpider] = []
-
-        self._tasks: set[asyncio.Task] = set()
-        self._max_task_count = 20
-        self._pending_task: asyncio.Task | None = None
+        self.shutdown_event = asyncio.Event()
+        self.worker_pool = WorkerPool(
+            self.logger,
+            self.shutdown_event,
+            self.scheduler,
+            self.downloader,
+            self.middleware,
+            self.pipeline_manager,
+            worker_count=5,
+        )
 
         self.running_spider: BaseSpider | None = None
 
+        self.start_time: float = 0
         self.auto_pause_timer: int = 3
 
     async def start(self):
         try:
+            self.mongo = MongoDBHandler(self.logger, db_name="test")
+            self.dataservice = DataService(self.mongo)
+
+            self.pipeline_manager.add_pipeline(BasePipeline())
+            self.pipeline_manager.add_pipeline(MongoDBPipeline(self.logger, self.mongo))
+
             await self.client_pool.initialize()
+
             self.status = EngineStatus.RUNNING
-            self.logger.info("Engine Start")
+            await self.worker_pool.start_workers()
+            # self.start_workers()
+            self.start_time = time()
+            self.logger.info("Engine started")
         except RuntimeError as e:
             self.logger.exception(e)
             await self.shutdown()
@@ -76,10 +88,12 @@ class Engine:
 
     async def shutdown(self):
         self.pause()
-        for t in self._tasks.copy():
-            # TODO RuntimeError（极少但可能）或漏 cancel
-            t.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        try:
+            for w in self.worker_pool._workers.copy():
+                w.cancel()
+            await asyncio.gather(*self.worker_pool._workers, return_exceptions=True)
+        except Exception:
+            pass
 
         await self.scheduler.shutdown()
         await self.client_pool.shutdown()
@@ -87,56 +101,54 @@ class Engine:
 
         self.status = EngineStatus.STOP
         self.downloader.resume()
+        self.shutdown_event.clear()
         self.logger.info("Engine Shutdown")
 
-    def run_task(self, task: asyncio.Task) -> bool:
-        if len(self._tasks) >= self._max_task_count:
-            if self._pending_task:
-                raise RuntimeError("The pending task have been set.")
-            self._pending_task = task
-            self.logger.info("Task pending: %s" % task.get_name())
-            return False
+    def get_status(self):
+        seconds = time() - self.start_time
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return {
+            "status": self.status.value,
+            "running_time": f"{hours:02d}:{minutes:02d}:{secs:02d}",
+            "running_spider": self.running_spider.name if self.running_spider else None,
+            "worker_count": len(self.worker_pool._workers),
+            "queue_size": self.scheduler.size,
+            "finished_requests": self.scheduler.finish_count,
+        }
 
-        self.logger.info("Run task: %s" % task.get_name())
-        self._tasks.add(task)
+    def add_spider_collection(self, spider_collection: SpiderCollection, **kwargs):
+        spider_collection.initialize(**kwargs)
+        self._spider_collections.append(spider_collection)
 
-        def done(finished_task):
-            try:
-                finished_task.result()
-            except Exception as e:
-                self.logger.exception(e)
-            self._tasks.discard(finished_task)
-
-        task.add_done_callback(done)
-        return True
-
-    def add_spider(self, spider: type[BaseSpider], **kwargs):
-        self._spiders.append(spider(self.logger, **kwargs))
-
-    def set_running_spider(self, name: str):
+    def run_spider(self, name: str) -> bool:
         """
         Only one spider program can be run in the same time.
         """
-        if len(self._spiders) == 0:
-            return
+        if len(self._spider_collections) == 0:
+            return False
         if self.running_spider:
             self.logger.warning("Spider %s is running." % self.running_spider.name)
-            return
+            return False
 
         spider = None
         # Get target spider
-        for _spider in self._spiders:
-            if _spider.name == name:
-                spider = _spider
+        for _spider_collection in self._spider_collections:
+            for _spider in _spider_collection.spiders:
+                if _spider.name == name:
+                    spider = _spider
+                    break
+            if spider:
                 break
         if not spider:
             self.logger.warning("Spider %s not found." % name)
-            return
+            return False
 
         # Init spider
-        if spider.is_start:
+        if spider.status == "finish":
             self.logger.warning("Spider %s has already been run." % spider.name)
-            return
+            return False
 
         self.logger.info("Running spider %s" % spider.name)
         self.running_spider = spider
@@ -147,139 +159,47 @@ class Engine:
         # Resume main loop
         if self.status == EngineStatus.PAUSE:
             self.resume()
+        return True
 
-    async def loop(self):
-        will_pause_time = 0
+    async def loop(self, will_pause_time: float = 0) -> float:
+        # while self.status != EngineStatus.STOP:
 
-        while self.status != EngineStatus.STOP:
-
-            # Pause point 1
-            while self.status == EngineStatus.PAUSE:
-                if self.status == EngineStatus.STOP:
-                    return
-                await asyncio.sleep(0)
-
-            # Auto Pause
-            if (
-                self.scheduler.empty and len(self._tasks) == 0
-            ) or self.running_spider is None:
-                # Init spider
-                if self.running_spider:
-                    if not self.running_spider.is_start:
-                        await self.scheduler.submit_requests(
-                            self.running_spider.start()
-                        )
-
-                # Pause after delay
-                time_now = time()
-                if will_pause_time == 0:
-                    will_pause_time = time()
-                if time_now - will_pause_time < self.auto_pause_timer:
-                    continue
-
-                if self.running_spider:
-                    self.logger.info(f"Spider {self.running_spider.name} finished.")
-                    self.running_spider = None
-                will_pause_time = 0
-                self.pause()
-                continue
-
-            await self.run_scheduled_request()
-
-            self.logger.debug("Complete one main loop cycle.")
-            await asyncio.sleep(0)
-
-    async def run_scheduled_request(self):
-        if self._pending_task:
-            # Limit running tasks count
-            if self.run_task(self._pending_task):
-                # Reset
-                self._pending_task = None
-
-        _request = self.scheduler.get_nowait()
-        if _request is None:
-            # Release resources and avoid being unable to exit due to indefinite waiting.
+        # Pause point 1
+        while self.status == EngineStatus.PAUSE:
+            if self.status == EngineStatus.STOP:
+                return will_pause_time
             await asyncio.sleep(1)
-            return
 
-        _request = self.middleware.process_request(_request)
-        if _request is None:
-            return
+        # Init spider
+        if self.running_spider:
+            if self.running_spider.status != SpiderStatus.RUNNING:
+                await self.scheduler.submit_requests(await self.running_spider.start())
 
-        self.logger.debug("Submit request: %s" % _request.fingerprint)
+        if self.running_spider is None or (
+            self.scheduler.empty and not self.worker_pool.is_running
+        ):
 
-        # add hooks
-        if _request.errback is None:
-            _request.errback = self.middleware.process_exception
+            # Pause after delay
+            time_now = time()
+            if will_pause_time == 0:
+                will_pause_time = time()
+            if time_now - will_pause_time < self.auto_pause_timer:
+                # continue
+                return will_pause_time
 
-        response_task = self.downloader.submit(_request)
-        # Pause point 2
-        response_task = asyncio.create_task(
-            self.request_callback(_request, response_task),
-            name=_request.fingerprint.hex(),
-        )
-        self.run_task(response_task)
+            if self.running_spider:
+                self.logger.info(f"Spider {self.running_spider.name} finished.")
+                self.running_spider.status = SpiderStatus.FINISH
+                self.running_spider = None
+            will_pause_time = 0
+            self.pause()
+            # continue
+            return will_pause_time
 
-    async def request_callback(
-        self,
-        request: Request,
-        result_task: Awaitable,
-        # future: asyncio.Future[Response | Request],
-    ):
-        fp = request.fingerprint
-        self.logger.debug("Callback called: %s" % fp.hex())
-        try:
-            result = await result_task
-        except Exception as e:
-            result = self.middleware.process_exception(request, e)
-            # TODO failed requeset
-            if result is None:
-                self.logger.error("Request failed", e)
-                return
-
-        if isinstance(result, Request):
-            await self.handle_request(result)
-            return
-
-        result = await self.handle_response(result)
-        if result is None:
-            # TODO failed requeset
-            return
-
-        # Request success
-        self.logger.debug("Call spider_callback: %s" % fp.hex())
-        try:
-            spider_result = await result.request.spider_parser(result)
-            # parse success -> don't need request again
-            self.scheduler.mark_done(fp)
-        except ParseError as e:
-            self.logger.critical(
-                "Spider parse failed. Parse method need update.",
-                exc_info=e,
-            )
+        # await self.run_scheduled_request()
+        if self.shutdown_event.is_set():
             asyncio.create_task(self.shutdown())
-            return
 
-        success = await self.pipeline_manager.process(
-            spider_result.items,
-        )
-
-        await self.scheduler.submit_requests(spider_result.requests)
-
-    async def handle_response(self, response: Response) -> Response | None:
-
-        result = self.middleware.process_response(response)
-
-        if isinstance(result, Response):
-            return result
-
-        if not await self.handle_request(result):
-            # TODO Wrong request generater
-            pass
-        return None
-
-    async def handle_request(self, resquest: Request):
-        new_request = self.middleware.process_request(resquest)
-        if new_request is None:
-            return
-        return await self.scheduler.submit(new_request)
+        self.logger.debug("Complete one main loop cycle.")
+        await asyncio.sleep(0.5)
+        return will_pause_time

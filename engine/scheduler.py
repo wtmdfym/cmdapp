@@ -9,6 +9,7 @@ priority are processed in FIFO order.
 
 import asyncio
 from typing import Iterable
+from collections import deque
 from data import Request
 
 
@@ -28,7 +29,7 @@ class Scheduler:
         _finished_request: A set of fingerprints for completed requests to prevent re-processing.
     """
 
-    def __init__(self, logger, queue_maxsize: int = 200):
+    def __init__(self, logger, maxlen: int = 4096):
         """
         Initialize the Scheduler with an empty priority queue.
 
@@ -43,50 +44,36 @@ class Scheduler:
             The queue stores tuples of: (priority: `int`, task_counter: `int`, request: `Request`)
         """
         self.logger = logger
-        self._queue = asyncio.PriorityQueue[tuple[int, int, Request]](
-            maxsize=queue_maxsize
-        )
-        self._task_counter = 0
+        self._queue = asyncio.PriorityQueue[tuple[int, int, Request]]()
+
+        self._task_count: int = 0
         self._scheduled_request: set[bytes] = set()
-        self._finished_request: set[bytes] = set()
+        self.finish_count: int = 0
+        self._finished_request: deque[bytes] = deque(maxlen=maxlen)
 
     async def submit(self, request: Request) -> bool:
         fp = request.fingerprint
         if fp in self._scheduled_request or fp in self._finished_request:
             self.logger.warning(
-                "The target URL for this request has been scheduled for execution."
+                f"""The target URL for this request has been scheduled for execution.\t
+Fingerprint: {fp.hex()}"""
             )
             return False
 
-        self._task_counter += 1
-        await self._queue.put((request.priority, self._task_counter, request))
+        self._task_count += 1
+        await self._queue.put((request.priority, self._task_count, request))
         self._scheduled_request.add(fp)
-        self.logger.debug("Schedule request: %s" % request.fingerprint)
+        self.logger.debug("Schedule request: %s" % request.fingerprint.hex())
         return True
 
-    async def submit_requests(self, requests: Iterable[Request]):
+    async def submit_requests(
+        self,
+        requests: Iterable[Request],
+    ):
         for request in requests:
             await self.submit(request)
 
     def get_nowait(self) -> Request | None:
-        """
-        Retrieve and remove the highest priority request from the queue.
-
-        This is a non-blocking operation that immediately returns the next available
-        request with the highest priority. The request is removed from the scheduled
-        set but not yet marked as finished.
-
-        Returns:
-            Request: The highest priority request if available.
-            None: If the queue is empty.
-
-        Raises:
-            asyncio.QueueShutDown: If the queue has been shut down.
-
-        Note:
-            After processing the returned request, call `mark_done()` to prevent
-            the same request from being scheduled again.
-        """
         try:
             if self._queue.empty():
                 return None
@@ -154,59 +141,16 @@ class Scheduler:
             ...     # Process the request...
             ...     scheduler.mark_done(request.fingerprint)
         """
-        self._finished_request.add(request_fp)
+        self.finish_count += 1
+        self._finished_request.append(request_fp)
 
     async def shutdown(self) -> None:
-        """
-        Gracefully shut down the scheduler queue.
-
-        Initiates an orderly shutdown of the scheduler by preventing new items
-        from being added to the queue. Existing items in the queue remain available
-        for retrieval via `get()` until exhausted.
-
-        Returns:
-            None
-
-        Raises:
-            asyncio.QueueShutDown: Propagated from the underlying queue shutdown.
-
-        Note:
-            After shutdown, `submit()` will raise `asyncio.QueueShutDown`.
-            Call this method when the application is terminating or when no more
-            requests should be accepted.
-        """
         self._queue.shutdown()
 
     @property
-    def blocked(self) -> bool:
-        """
-        Check if the scheduler queue has reached its maximum capacity.
-
-        Indicates whether the queue is currently full and cannot accept new
-        requests without first removing existing ones.
-
-        Returns:
-            bool: True if the queue is at maximum capacity, False otherwise.
-
-        Note:
-            When blocked, `submit()` will raise `asyncio.QueueFull` until space
-            becomes available.
-        """
-        return self._queue.full()
+    def empty(self) -> bool:
+        return self._queue.empty()
 
     @property
-    def empty(self) -> bool:
-        """
-        Check if the scheduler queue contains no pending requests.
-
-        Provides a quick check for queue emptiness without modifying the queue state.
-
-        Returns:
-            bool: True if the queue has no pending requests, False otherwise.
-
-        Note:
-            An empty queue does not indicate that all requests are processed;
-            some may be in progress or marked as finished. Use in combination with
-            `_scheduled_request` and `_finished_request` for complete state assessment.
-        """
-        return self._queue.empty()
+    def size(self):
+        return self._queue.qsize()

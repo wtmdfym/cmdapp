@@ -2,3 +2,4 @@ httpx
 pillow
 motor
 parsel
+fastapi

@@ -8,6 +8,7 @@ requests via semaphore-based flow control.
 
 import asyncio
 from data import Request, Response
+from typing import Awaitable
 from .clientpool import ClientPool
 
 
@@ -46,10 +47,10 @@ class Downloader:
     def submit(
         self,
         request: Request,
-    ) -> asyncio._CoroutineLike:
+    ) -> Awaitable[Response]:
         return self._worker(request)
 
-    async def _worker(self, request: Request) -> Response | None:
+    async def _worker(self, request: Request) -> Response:
         """
         Worker coroutine that executes a single HTTP request.
 
@@ -71,10 +72,10 @@ class Downloader:
                           This exception is re-raised for upstream handling.
         """
 
-        # Pause point2: blocks here if pause() has been called, until resume() is called
-        await self._pause_event.wait()
-
         async with self._semaphore:
+            # Pause point2: blocks here if pause() has been called,
+            # until resume() is called
+            await self._pause_event.wait()
             try:
                 resp = await self.client_pool.request(
                     method=request.method,
@@ -87,7 +88,14 @@ class Downloader:
 
                 if resp is None:
                     # future.set_result(request)
-                    return
+                    return Response(
+                        request=request,
+                        status=0,
+                        headers=request.headers or {},
+                        content=b"",
+                        elapsed=0,
+                        raw=resp,
+                    )
 
                 response = Response(
                     request=request,
